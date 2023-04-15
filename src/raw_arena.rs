@@ -6,7 +6,7 @@ use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 
 const HEADER_SIZE: usize = std::mem::size_of::<ChunkHeader>();
-const CHUNK_LAYOUT: usize = 16;
+const CHUNK_ALIGNMENT: usize = 16;
 
 const DEFAULT_CAPACITY: NonZeroUsize = unsafe {
     // Safety: not zero
@@ -27,11 +27,18 @@ impl core::fmt::Display for OutOfMemory {
 
 type Result<T> = core::result::Result<T, OutOfMemory>;
 
+struct ArenaState {
+    chunk: NonNull<ChunkHeader>,
+    finger: NonNull<u8>,
+}
+
 /// A memory chunk, the header is followed by the chunk's contents.
 #[repr(C)]
 struct ChunkHeader {
     /// Pointer to the previous chunk.
     previous: Option<NonNull<Self>>,
+    /// Pointer to the next chunk.
+    next: Cell<Option<NonNull<Self>>>,
     /// Pointer to the last byte of the chunk.
     end: NonNull<u8>,
     /// Points to the first byte of the region of the chunk's contents containing allocated
@@ -42,8 +49,6 @@ struct ChunkHeader {
     ///
     /// [`start`]: Self::start
     finger: Cell<NonNull<u8>>,
-    /// The size, in bytes, of the last memory allocation made in this chunk.
-    previous_allocation_size: Cell<Option<NonZeroUsize>>,
     layout: Layout,
 }
 
@@ -59,9 +64,9 @@ impl ChunkHeader {
         }
     }
 
-    /// Returns the size of the chunk.
+    /// Returns the maximum amount, in bytes, of content that can be stored in this chunk.
     #[inline(always)]
-    pub(crate) fn size(&self) -> NonZeroUsize {
+    pub(crate) fn capacity(&self) -> NonZeroUsize {
         unsafe {
             // Safety: size is never 0
             NonZeroUsize::new_unchecked(self.end.as_ptr() as usize - self.start().as_ptr() as usize)
@@ -91,17 +96,28 @@ impl ChunkHeader {
     }
 }
 
-fn allocate_chunk(
+fn get_next_or_allocate_chunk(
     current_chunk: &Cell<Option<NonNull<ChunkHeader>>>,
-    requested_capacity: NonZeroUsize,
+    default_capacity: Option<NonZeroUsize>,
 ) -> Result<NonNull<ChunkHeader>> {
-    let size = requested_capacity
-        .checked_next_power_of_two()
-        .ok_or(OutOfMemory)?
+    let previous = current_chunk.get();
+    let previous_chunk = previous.map(|pointer| unsafe {
+        // Safety: chunk pointer is valid.
+        pointer.as_ref()
+    });
+
+    if let Some(next) = previous_chunk.and_then(|chunk| chunk.next.get()) {
+        // The "next" chunk should be empty
+        return Ok(next);
+    }
+
+    let size = previous_chunk
+        .map(|chunk| chunk.capacity().get().checked_mul(2).unwrap_or(usize::MAX))
+        .unwrap_or(default_capacity.unwrap_or(DEFAULT_CAPACITY).get())
         .checked_add(HEADER_SIZE)
         .ok_or(OutOfMemory)?;
 
-    let layout = Layout::from_size_align(size.get(), CHUNK_LAYOUT).map_err(|_| OutOfMemory)?;
+    let layout = Layout::from_size_align(size, CHUNK_ALIGNMENT).map_err(|_| OutOfMemory)?;
 
     let chunk = unsafe {
         // Safety: layout size is never 0
@@ -115,13 +131,17 @@ fn allocate_chunk(
             .as_mut();
 
         NonNull::from(header.write(ChunkHeader {
-            previous: current_chunk.get(),
+            previous,
+            next: Cell::new(None),
             end,
             finger: Cell::new(end),
-            previous_allocation_size: Cell::new(None),
             layout,
         }))
     };
+
+    if let Some(previous_chunk) = previous_chunk {
+        previous_chunk.next.set(Some(chunk));
+    }
 
     current_chunk.set(Some(chunk));
     Ok(chunk)
@@ -141,8 +161,8 @@ impl RawArena {
             current_chunk: Cell::new(None),
         };
 
-        if let Some(capacity) = NonZeroUsize::new(capacity) {
-            allocate_chunk(&arena.current_chunk, capacity).unwrap();
+        if let actual_capacity @ Some(_) = NonZeroUsize::new(capacity) {
+            get_next_or_allocate_chunk(&arena.current_chunk, actual_capacity).unwrap();
         }
 
         arena
@@ -174,7 +194,7 @@ impl RawArena {
         let chunk = if let Some(chunk) = self.current_chunk.get() {
             chunk
         } else {
-            allocate_chunk(&self.current_chunk, DEFAULT_CAPACITY)?
+            get_next_or_allocate_chunk(&self.current_chunk, None)?
         };
 
         unsafe {
