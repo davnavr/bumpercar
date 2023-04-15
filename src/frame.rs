@@ -19,13 +19,15 @@ impl<'a> Frame<'a> {
     }
 
     pub(crate) unsafe fn restore(self) {
+        // Safety: ensured by caller
         unsafe {
-            // Safety: ensured by caller
             self.arena.arena.restore_state(self.state);
         }
     }
 }
 
+// Safety: 'f is the lifetime of the frame, which is less than the lifetime of the arena 'a,
+// so allocations live for the lifetime of the frame
 unsafe impl<'a: 'f, 'f> crate::Bump<'f, 'f> for Frame<'a> {
     fn with_frame<T, F: FnOnce(&mut crate::Frame<'f>) -> T>(&'f mut self, f: F) -> T {
         self.arena.with_frame(f)

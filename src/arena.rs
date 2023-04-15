@@ -35,16 +35,20 @@ impl Arena {
     }
 }
 
+// Safety: 'a is lifetime of arena, so allocations live as long as the arena
 unsafe impl<'a> crate::Bump<'a, 'a> for Arena {
     fn with_frame<T, F: FnOnce(&mut crate::Frame<'a>) -> T>(&'a mut self, f: F) -> T {
         let mut frame = crate::Frame::new(self);
+
         // If a panic occurs, then bump pointer does not get adjusted back
         // Only problem is unused memory (memory leak), which is not unsafe or UB
         let result = f(&mut frame);
+
+        // Safety: calls are nested correctly
         unsafe {
-            // Safety: calls are nested correctly
             frame.restore();
         }
+
         result
     }
 
@@ -65,4 +69,6 @@ impl core::default::Default for Arena {
     }
 }
 
+// Safety: Safe to send across threads, existing references into the arena are checked by the
+// borrow checker so thread sending shenanigans shouldn't occur
 unsafe impl Send for Arena {}

@@ -36,10 +36,8 @@ pub unsafe trait Bump<'me, 'a>: sealed::Sealed {
 
     /// Allocates space for an instance of `T`.
     fn allocate_uninit<T>(&'me self) -> &'a mut core::mem::MaybeUninit<T> {
-        unsafe {
-            // Safety: passed layout ensures proper alignment
-            self.alloc_with_layout(Layout::new::<T>()).cast().as_mut()
-        }
+        // Safety: passed layout ensures proper alignment
+        unsafe { self.alloc_with_layout(Layout::new::<T>()).cast().as_mut() }
     }
 
     /// Allocates space for an instance of `T`, and initializes it with the given closure.

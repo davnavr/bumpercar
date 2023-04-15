@@ -8,9 +8,9 @@ use core::ptr::NonNull;
 const HEADER_SIZE: usize = core::mem::size_of::<ChunkHeader>();
 const CHUNK_ALIGNMENT: usize = 16;
 
-const DEFAULT_CAPACITY: NonZeroUsize = unsafe {
+const DEFAULT_CAPACITY: NonZeroUsize = {
     // Safety: not zero
-    NonZeroUsize::new_unchecked(1024)
+    unsafe { NonZeroUsize::new_unchecked(1024) }
 };
 
 // Uses a "downward bumping allocator", see https://fitzgeraldnick.com/2019/11/01/always-bump-downwards.html
@@ -60,17 +60,15 @@ impl ChunkHeader {
     /// The returned value is expected to be less than [`end`](Self::end).
     #[inline(always)]
     pub(crate) const fn start(&self) -> NonNull<u8> {
-        unsafe {
-            // Safety: overflow will not occur, since allocation request would have failed
-            NonNull::new_unchecked((self as *const Self as *mut u8).add(HEADER_SIZE))
-        }
+        // Safety: overflow will not occur, since allocation request would have failed
+        unsafe { NonNull::new_unchecked((self as *const Self as *mut u8).add(HEADER_SIZE)) }
     }
 
     /// Returns the maximum amount, in bytes, of content that can be stored in this chunk.
     #[inline(always)]
     pub(crate) fn capacity(&self) -> NonZeroUsize {
+        // Safety: size is never 0
         unsafe {
-            // Safety: size is never 0
             NonZeroUsize::new_unchecked(self.end.as_ptr() as usize - self.start().as_ptr() as usize)
         }
     }
@@ -89,10 +87,9 @@ impl ChunkHeader {
 
         if finger >= start {
             debug_assert!(finger <= self.end.as_ptr());
-            Ok(unsafe {
-                // Safety: finger is not null, since start is not null
-                NonNull::new_unchecked(finger)
-            })
+
+            // Safety: finger is not null, since start is not null
+            Ok(unsafe { NonNull::new_unchecked(finger) })
         } else {
             Err(OutOfMemory)
         }
@@ -104,16 +101,14 @@ fn get_next_or_allocate_chunk(
     default_capacity: Option<NonZeroUsize>,
 ) -> Result<NonNull<ChunkHeader>> {
     let previous_chunk = current_chunk.get();
-    let previous_header = previous_chunk.map(|previous| unsafe {
+    let previous_header = previous_chunk.map(|previous| {
         // Safety: previous pointer is valid.
-        previous.as_ref()
+        unsafe { previous.as_ref() }
     });
 
     if let Some(next_chunk) = previous_header.and_then(|chunk| chunk.next.get()) {
-        let next_header = unsafe {
-            // Safety: next pointer is valid
-            next_chunk.as_ref()
-        };
+        // Safety: next pointer is valid
+        let next_header = unsafe { next_chunk.as_ref() };
 
         // In cases where previous "states" are restored, a chunk may have some allocations remaining
         // This means that the returned chunk has to be set to an empty state
@@ -136,16 +131,25 @@ fn get_next_or_allocate_chunk(
 
     let layout = Layout::from_size_align(rounded_size, CHUNK_ALIGNMENT).map_err(|_| OutOfMemory)?;
 
-    let chunk = unsafe {
+    let chunk = {
+        let pointer;
+        let end;
+
         // Safety: layout size is never 0
-        let pointer = alloc::alloc(layout);
-        let end = NonNull::new(pointer.add(rounded_size)).ok_or(OutOfMemory)?;
+        unsafe {
+            pointer = alloc::alloc(layout);
+            end = NonNull::new(pointer.add(rounded_size)).ok_or(OutOfMemory)?;
+        }
+
+        let header;
 
         // Safety: layout uses alignment of ChunkHeader, so reference is aligned
-        let header = NonNull::new(pointer)
-            .ok_or(OutOfMemory)?
-            .cast::<MaybeUninit<ChunkHeader>>()
-            .as_mut();
+        unsafe {
+            header = NonNull::new(pointer)
+                .ok_or(OutOfMemory)?
+                .cast::<MaybeUninit<ChunkHeader>>()
+                .as_mut();
+        }
 
         NonNull::from(header.write(ChunkHeader {
             previous: previous_chunk,
@@ -197,11 +201,8 @@ impl RawArena {
     #[inline(always)]
     fn fast_alloc_with_layout(&self, layout: Layout) -> Result<NonNull<u8>> {
         if let Some(chunk) = self.current_chunk.get() {
-            unsafe {
-                // Safety: chunk is valid reference
-                chunk.as_ref()
-            }
-            .fast_alloc_with_layout(layout)
+            // Safety: chunk is valid reference
+            unsafe { chunk.as_ref() }.fast_alloc_with_layout(layout)
         } else {
             Err(OutOfMemory)
         }
@@ -215,20 +216,15 @@ impl RawArena {
             get_next_or_allocate_chunk(&self.current_chunk, None)?
         };
 
-        unsafe {
-            // Safety: chunk is valid reference
-            chunk.as_ref()
-        }
-        .fast_alloc_with_layout(layout)
+        // Safety: chunk is valid reference
+        unsafe { chunk.as_ref() }.fast_alloc_with_layout(layout)
     }
 
     /// Returns an [`ArenaState`], a snapshot of the state of this arena's chunks.
     pub(crate) fn current_state(&self) -> Option<RawArenaState> {
         self.current_chunk.get().map(|chunk| {
-            let header = unsafe {
-                // Safety: chunk is a valid pointer
-                chunk.as_ref()
-            };
+            // Safety: chunk is a valid pointer
+            let header = unsafe { chunk.as_ref() };
 
             RawArenaState {
                 chunk,
@@ -268,17 +264,13 @@ impl RawArena {
         if let Some(restoring) = state {
             self.current_chunk.set(Some(restoring.chunk));
 
-            let chunk = unsafe {
-                // Safety: chunk is valid for self
-                restoring.chunk.as_ref()
-            };
+            // Safety: chunk is valid for self
+            let chunk = unsafe { restoring.chunk.as_ref() };
 
             chunk.finger.set(restoring.finger);
         } else {
-            unsafe {
-                // Safety: requirements for this function are stricter than reset()
-                self.reset()
-            }
+            // Safety: requirements for this function are stricter than reset()
+            unsafe { self.reset() }
         }
     }
 
@@ -292,8 +284,9 @@ impl Drop for RawArena {
         let mut current_chunk = self.current_chunk.get();
         while let Some(chunk) = current_chunk {
             let previous;
+
+            // Safety: pointer to chunk is valid
             unsafe {
-                // Safety: pointer to chunk is valid
                 let header = chunk.as_ref();
                 previous = header.previous;
                 alloc::dealloc(chunk.as_ptr() as *mut u8, header.layout)
