@@ -35,6 +35,8 @@ struct ChunkHeader {
     ///
     /// [`end`]: Self::end
     finger: Cell<NonNull<u8>>,
+    /// The size, in bytes, of the last memory allocation made in this chunk.
+    previous_allocation_size: Cell<Option<NonZeroUsize>>,
 }
 
 impl ChunkHeader {
@@ -69,8 +71,11 @@ fn allocate_chunk(
         .checked_add(HEADER_SIZE)
         .ok_or(OutOfMemory)?;
 
-    let layout = Layout::from_size_align(size.get(), std::mem::align_of::<ChunkHeader>())
-        .map_err(|_| OutOfMemory)?;
+    let layout = Layout::from_size_align(
+        size.get(),
+        core::cmp::max(std::mem::align_of::<ChunkHeader>(), 16),
+    )
+    .map_err(|_| OutOfMemory)?;
 
     unsafe {
         // Safety: layout size is never 0
@@ -87,6 +92,7 @@ fn allocate_chunk(
             previous: current_chunk.get(),
             end,
             finger: Cell::new(end),
+            previous_allocation_size: Cell::new(None),
         }))));
     }
 
