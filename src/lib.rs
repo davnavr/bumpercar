@@ -11,10 +11,12 @@ extern crate alloc;
 
 mod arena;
 mod bump;
+mod frame;
 mod raw_arena;
 
 pub use arena::Arena;
 pub use bump::Bump;
+pub use frame::Frame;
 
 /// Imports commonly used types for bump allocation.
 pub mod prelude {

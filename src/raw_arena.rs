@@ -5,7 +5,7 @@ use core::mem::MaybeUninit;
 use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 
-const HEADER_SIZE: usize = std::mem::size_of::<ChunkHeader>();
+const HEADER_SIZE: usize = core::mem::size_of::<ChunkHeader>();
 const CHUNK_ALIGNMENT: usize = 16;
 
 const DEFAULT_CAPACITY: NonZeroUsize = unsafe {
@@ -28,8 +28,8 @@ impl core::fmt::Display for OutOfMemory {
 type Result<T> = core::result::Result<T, OutOfMemory>;
 
 /// Allows for quick deallocation of a portion of a [`RawArena`].
-#[derive(Clone, Copy)]
-pub(crate) struct ArenaState {
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RawArenaState {
     chunk: NonNull<ChunkHeader>,
     finger: NonNull<u8>,
 }
@@ -130,7 +130,9 @@ fn get_next_or_allocate_chunk(
         .checked_add(HEADER_SIZE)
         .ok_or(OutOfMemory)?;
 
-    let rounded_size = size.checked_add(size % CHUNK_ALIGNMENT).ok_or(OutOfMemory)?;
+    let rounded_size = size
+        .checked_add(size % CHUNK_ALIGNMENT)
+        .ok_or(OutOfMemory)?;
 
     let layout = Layout::from_size_align(rounded_size, CHUNK_ALIGNMENT).map_err(|_| OutOfMemory)?;
 
@@ -221,14 +223,17 @@ impl RawArena {
     }
 
     /// Returns an [`ArenaState`], a snapshot of the state of this arena's chunks.
-    pub(crate) fn current_state(&self) -> Option<ArenaState> {
+    pub(crate) fn current_state(&self) -> Option<RawArenaState> {
         self.current_chunk.get().map(|chunk| {
             let header = unsafe {
                 // Safety: chunk is a valid pointer
                 chunk.as_ref()
             };
 
-            ArenaState { chunk, finger: header.finger.get() }
+            RawArenaState {
+                chunk,
+                finger: header.finger.get(),
+            }
         })
     }
 
@@ -259,7 +264,7 @@ impl RawArena {
     ///
     /// `current_state`: Self::current_state
     /// `restore_state`: Self::restore_state
-    pub(crate) unsafe fn restore_state(&self, state: Option<ArenaState>) {
+    pub(crate) unsafe fn restore_state(&self, state: Option<RawArenaState>) {
         if let Some(restoring) = state {
             self.current_chunk.set(Some(restoring.chunk));
 

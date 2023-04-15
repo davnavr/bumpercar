@@ -18,7 +18,7 @@ use core::ptr::NonNull;
 /// assert_eq!(*my_num, 0xABCDi32);
 /// ```
 pub struct Arena {
-    arena: RawArena,
+    pub(crate) arena: RawArena,
 }
 
 impl Arena {
@@ -36,6 +36,18 @@ impl Arena {
 }
 
 unsafe impl<'a> crate::Bump<'a, 'a> for Arena {
+    fn with_frame<T, F: FnOnce(&mut crate::Frame<'a>) -> T>(&'a mut self, f: F) -> T {
+        let mut frame = crate::Frame::new(self);
+        // If a panic occurs, then bump pointer does not get adjusted back
+        // Only problem is unused memory (memory leak), which is not unsafe or UB
+        let result = f(&mut frame);
+        unsafe {
+            // Safety: calls are nested correctly
+            frame.restore();
+        }
+        result
+    }
+
     fn alloc_with_layout(&'a self, layout: core::alloc::Layout) -> NonNull<u8> {
         self.arena.alloc_with_layout(layout)
     }

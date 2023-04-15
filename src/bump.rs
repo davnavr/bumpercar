@@ -7,6 +7,7 @@ mod sealed {
     pub trait Sealed {}
 
     impl Sealed for crate::Arena {}
+    impl Sealed for crate::Frame<'_> {}
 }
 
 /// Contains methods for bump allocation.
@@ -16,11 +17,16 @@ mod sealed {
 /// Implementations must ensure that all allocations are valid for the lifetime `'a`.
 ///
 /// Any pointers (such as those originating from [`alloc_with_layout`](Bump::alloc_with_layout))
-/// returned as a result of allocation requests must be [valid](https://doc.rust-lang.org/std/ptr/#safety).
+/// returned as a result of allocation requests must be
+/// [valid](https://doc.rust-lang.org/core/ptr/#safety).
 ///
 /// Additionally, requests to allocate zero-sized values must yield a pointer that can be
 /// transmuted into a valid mutable reference.
 pub unsafe trait Bump<'me, 'a>: sealed::Sealed {
+    /// Calls a closure with a [`Frame`](crate::Frame) used to tie the lifetime of allocations made
+    /// into an arena to a stack frame.
+    fn with_frame<T, F: FnOnce(&mut crate::Frame<'me>) -> T>(&'me mut self, f: F) -> T;
+
     /// Allocates space for an object with the given [`Layout`], returning a valid pointer to it.
     ///
     /// # Panics
