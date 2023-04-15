@@ -1,0 +1,11 @@
+[package]
+name = "bumpercar"
+edition = "2021"
+readme = "README.md"
+version = "0.1.0"
+rust-version = "1.64"
+
+[features]
+default = ["std", "sync"]
+std = []
+sync = ["std"]
