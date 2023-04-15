@@ -10,6 +10,16 @@ const DEFAULT_CAPACITY: usize = 1024;
 
 // Uses a "downward bumping allocator", see https://fitzgeraldnick.com/2019/11/01/always-bump-downwards.html
 
+#[derive(Debug)]
+#[non_exhaustive]
+pub(crate) struct OutOfMemory;
+
+impl core::fmt::Display for OutOfMemory {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "out of memory")
+    }
+}
+
 /// A memory chunk, the header is followed by the chunk's contents.
 #[repr(C)]
 struct ChunkHeader {
@@ -52,34 +62,51 @@ impl ChunkHeader {
 fn allocate_chunk(
     current_chunk: &Cell<Option<NonNull<ChunkHeader>>>,
     requested_capacity: NonZeroUsize,
-) -> Option<NonNull<ChunkHeader>> {
+) -> Result<(), OutOfMemory> {
     let size = requested_capacity
-        .get()
-        .checked_next_power_of_two()?
-        .checked_add(HEADER_SIZE)?;
-    let layout = Layout::from_size_align(size, std::mem::align_of::<ChunkHeader>()).ok()?;
-    let chunk = unsafe {
+        .checked_next_power_of_two()
+        .ok_or(OutOfMemory)?
+        .checked_add(HEADER_SIZE)
+        .ok_or(OutOfMemory)?;
+
+    let layout = Layout::from_size_align(size.get(), std::mem::align_of::<ChunkHeader>())
+        .map_err(|_| OutOfMemory)?;
+
+    unsafe {
         // Safety: layout size is never 0
         let pointer = alloc::alloc(layout);
-        let end = NonNull::new(pointer.add(layout.size()))?;
+        let end = NonNull::new(pointer.add(layout.size())).ok_or(OutOfMemory)?;
 
         // Safety: layout uses alignment of ChunkHeader, so reference is aligned
-        let header = NonNull::new(pointer)?
+        let header = NonNull::new(pointer)
+            .ok_or(OutOfMemory)?
             .cast::<MaybeUninit<ChunkHeader>>()
             .as_mut();
-        Some(NonNull::from(header.write(ChunkHeader {
+
+        current_chunk.set(Some(NonNull::from(header.write(ChunkHeader {
             previous: current_chunk.get(),
             end,
             finger: Cell::new(end),
-        })))
-    };
+        }))));
+    }
 
-    current_chunk.set(chunk);
-    chunk
+    Ok(())
 }
 
 pub(crate) struct RawArena {
     current_chunk: Cell<Option<NonNull<ChunkHeader>>>,
 }
 
-impl RawArena {}
+impl RawArena {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        let arena = Self {
+            current_chunk: Cell::new(None),
+        };
+
+        if let Some(capacity) = NonZeroUsize::new(capacity) {
+            allocate_chunk(&arena.current_chunk, capacity).unwrap();
+        }
+
+        arena
+    }
+}
