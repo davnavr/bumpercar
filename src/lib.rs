@@ -1,20 +1,20 @@
 #![doc = include_str!("../README.md")]
 #![deny(missing_debug_implementations)]
 #![deny(missing_docs)]
+#![deny(unreachable_pub)]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![warn(clippy::alloc_instead_of_core)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+#[cfg(not(feature = "std"))]
+extern crate alloc;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod bump;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub use bump::Bump;
+
+/// Imports commonly used types for bump allocation.
+pub mod prelude {
+    #[doc(no_inline)]
+    pub use crate::Bump;
 }
