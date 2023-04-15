@@ -1,11 +1,12 @@
 //! Contains the [`Bump`] trait.
 
 use core::alloc::Layout;
-use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
 mod sealed {
     pub trait Sealed {}
+
+    impl Sealed for crate::Arena {}
 }
 
 /// Contains methods for bump allocation.
