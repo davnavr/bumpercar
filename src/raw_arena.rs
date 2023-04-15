@@ -27,7 +27,9 @@ impl core::fmt::Display for OutOfMemory {
 
 type Result<T> = core::result::Result<T, OutOfMemory>;
 
-struct ArenaState {
+/// Allows for quick deallocation of a portion of a [`RawArena`].
+#[derive(Clone, Copy)]
+pub(crate) struct ArenaState {
     chunk: NonNull<ChunkHeader>,
     finger: NonNull<u8>,
 }
@@ -39,7 +41,7 @@ struct ChunkHeader {
     previous: Option<NonNull<Self>>,
     /// Pointer to the next chunk.
     next: Cell<Option<NonNull<Self>>>,
-    /// Pointer to the last byte of the chunk.
+    /// Pointer to the byte after the last byte of the chunk.
     end: NonNull<u8>,
     /// Points to the first byte of the region of the chunk's contents containing allocated
     /// objects.
@@ -86,6 +88,7 @@ impl ChunkHeader {
         finger = finger.wrapping_sub(finger as usize % layout.align());
 
         if finger >= start {
+            debug_assert!(finger <= self.end.as_ptr());
             Ok(unsafe {
                 // Safety: finger is not null, since start is not null
                 NonNull::new_unchecked(finger)
@@ -100,29 +103,41 @@ fn get_next_or_allocate_chunk(
     current_chunk: &Cell<Option<NonNull<ChunkHeader>>>,
     default_capacity: Option<NonZeroUsize>,
 ) -> Result<NonNull<ChunkHeader>> {
-    let previous = current_chunk.get();
-    let previous_chunk = previous.map(|pointer| unsafe {
-        // Safety: chunk pointer is valid.
-        pointer.as_ref()
+    let previous_chunk = current_chunk.get();
+    let previous_header = previous_chunk.map(|previous| unsafe {
+        // Safety: previous pointer is valid.
+        previous.as_ref()
     });
 
-    if let Some(next) = previous_chunk.and_then(|chunk| chunk.next.get()) {
-        // The "next" chunk should be empty
-        return Ok(next);
+    if let Some(next_chunk) = previous_header.and_then(|chunk| chunk.next.get()) {
+        let next_header = unsafe {
+            // Safety: next pointer is valid
+            next_chunk.as_ref()
+        };
+
+        // In cases where previous "states" are restored, a chunk may have some allocations remaining
+        // This means that the returned chunk has to be set to an empty state
+        next_header.finger.set(next_header.end);
+
+        return Ok(next_chunk);
     }
 
-    let size = previous_chunk
+    // Need to allocate a new chunk
+
+    let size = previous_header
         .map(|chunk| chunk.capacity().get().checked_mul(2).unwrap_or(usize::MAX))
         .unwrap_or(default_capacity.unwrap_or(DEFAULT_CAPACITY).get())
         .checked_add(HEADER_SIZE)
         .ok_or(OutOfMemory)?;
 
-    let layout = Layout::from_size_align(size, CHUNK_ALIGNMENT).map_err(|_| OutOfMemory)?;
+    let rounded_size = size.checked_add(size % CHUNK_ALIGNMENT).ok_or(OutOfMemory)?;
+
+    let layout = Layout::from_size_align(rounded_size, CHUNK_ALIGNMENT).map_err(|_| OutOfMemory)?;
 
     let chunk = unsafe {
         // Safety: layout size is never 0
         let pointer = alloc::alloc(layout);
-        let end = NonNull::new(pointer.add(layout.size())).ok_or(OutOfMemory)?;
+        let end = NonNull::new(pointer.add(rounded_size)).ok_or(OutOfMemory)?;
 
         // Safety: layout uses alignment of ChunkHeader, so reference is aligned
         let header = NonNull::new(pointer)
@@ -131,7 +146,7 @@ fn get_next_or_allocate_chunk(
             .as_mut();
 
         NonNull::from(header.write(ChunkHeader {
-            previous,
+            previous: previous_chunk,
             next: Cell::new(None),
             end,
             finger: Cell::new(end),
@@ -139,7 +154,8 @@ fn get_next_or_allocate_chunk(
         }))
     };
 
-    if let Some(previous_chunk) = previous_chunk {
+    if let Some(previous_chunk) = previous_header {
+        debug_assert!(previous_chunk.next.get().is_none());
         previous_chunk.next.set(Some(chunk));
     }
 
@@ -202,6 +218,67 @@ impl RawArena {
             chunk.as_ref()
         }
         .fast_alloc_with_layout(layout)
+    }
+
+    /// Returns an [`ArenaState`], a snapshot of the state of this arena's chunks.
+    pub(crate) fn current_state(&self) -> Option<ArenaState> {
+        self.current_chunk.get().map(|chunk| {
+            let header = unsafe {
+                // Safety: chunk is a valid pointer
+                chunk.as_ref()
+            };
+
+            ArenaState { chunk, finger: header.finger.get() }
+        })
+    }
+
+    /// Restores an earlier [`ArenaState`].
+    ///
+    /// # Safety
+    ///
+    /// The [`ArenaState`] passed as a parameter **must** have been returned by an earlier call
+    /// from [`current_state`] for `self`.
+    ///
+    /// In between the [`current_state`] call used to obtain the [`ArenaState`] passed as a parameter
+    /// and the call to [`restore_state`]:
+    /// - The specific [`ArenaState`] parameter must not have been passed to any other call to
+    ///   [`restore_state`]
+    /// - Any other calls to [`restore_state`] must be paired with calls to [`current_state`] in the same interval.
+    ///
+    /// Essentially, calls to restore_state make an implicit stack.
+    ///
+    /// ```text
+    /// A = current state #1
+    /// B = current state #2
+    /// C = current state #3
+    /// ...
+    /// restore state C
+    /// restore state B
+    /// restore state A
+    /// ```
+    ///
+    /// `current_state`: Self::current_state
+    /// `restore_state`: Self::restore_state
+    pub(crate) unsafe fn restore_state(&self, state: Option<ArenaState>) {
+        if let Some(restoring) = state {
+            self.current_chunk.set(Some(restoring.chunk));
+
+            let chunk = unsafe {
+                // Safety: chunk is valid for self
+                restoring.chunk.as_ref()
+            };
+
+            chunk.finger.set(restoring.finger);
+        } else {
+            unsafe {
+                // Safety: requirements for this function are stricter than reset()
+                self.reset()
+            }
+        }
+    }
+
+    pub(crate) unsafe fn reset(&self) {
+        todo!("reset by looping")
     }
 }
 
