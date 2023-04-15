@@ -6,6 +6,7 @@ use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 
 const HEADER_SIZE: usize = std::mem::size_of::<ChunkHeader>();
+const CHUNK_LAYOUT: usize = 16;
 
 const DEFAULT_CAPACITY: NonZeroUsize = unsafe {
     // Safety: not zero
@@ -43,6 +44,7 @@ struct ChunkHeader {
     finger: Cell<NonNull<u8>>,
     /// The size, in bytes, of the last memory allocation made in this chunk.
     previous_allocation_size: Cell<Option<NonZeroUsize>>,
+    layout: Layout,
 }
 
 impl ChunkHeader {
@@ -99,11 +101,7 @@ fn allocate_chunk(
         .checked_add(HEADER_SIZE)
         .ok_or(OutOfMemory)?;
 
-    let layout = Layout::from_size_align(
-        size.get(),
-        core::cmp::max(std::mem::align_of::<ChunkHeader>(), 16),
-    )
-    .map_err(|_| OutOfMemory)?;
+    let layout = Layout::from_size_align(size.get(), CHUNK_LAYOUT).map_err(|_| OutOfMemory)?;
 
     let chunk = unsafe {
         // Safety: layout size is never 0
@@ -121,6 +119,7 @@ fn allocate_chunk(
             end,
             finger: Cell::new(end),
             previous_allocation_size: Cell::new(None),
+            layout,
         }))
     };
 
@@ -128,6 +127,10 @@ fn allocate_chunk(
     Ok(chunk)
 }
 
+/// Low-level bump allocator that uses memory from the global allocator.
+///
+/// Users should ensure that they do not use pointers to allocated objects
+/// after the arena has been dropped.
 pub(crate) struct RawArena {
     current_chunk: Cell<Option<NonNull<ChunkHeader>>>,
 }
@@ -179,5 +182,22 @@ impl RawArena {
             chunk.as_ref()
         }
         .fast_alloc_with_layout(layout)
+    }
+}
+
+impl Drop for RawArena {
+    fn drop(&mut self) {
+        let mut current_chunk = self.current_chunk.get();
+        while let Some(chunk) = current_chunk {
+            let previous;
+            unsafe {
+                // Safety: pointer to chunk is valid
+                let header = chunk.as_ref();
+                previous = header.previous;
+                alloc::dealloc(chunk.as_ptr() as *mut u8, header.layout)
+            }
+
+            current_chunk = previous;
+        }
     }
 }
