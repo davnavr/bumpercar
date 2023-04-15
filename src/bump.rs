@@ -1,6 +1,7 @@
 //! Contains the [`Bump`] trait.
 
 use core::alloc::Layout;
+use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
 mod sealed {
@@ -26,17 +27,18 @@ pub unsafe trait Bump<'me, 'a>: sealed::Sealed {
     /// Panics if any calls to an underlying memory allocator fail.
     fn alloc_with_layout(&'me self, layout: Layout) -> NonNull<u8>;
 
+    /// Allocates space for an instance of `T`.
+    fn allocate_uninit<T>(&'me self) -> &'a mut core::mem::MaybeUninit<T> {
+        unsafe {
+            // Safety: passed layout ensures proper alignment
+            self.alloc_with_layout(Layout::new::<T>()).cast().as_mut()
+        }
+    }
+
     /// Allocates space for an instance of `T`, and initializes it with the given closure.
     #[inline(always)]
     fn alloc_with<T, F: FnOnce() -> T>(&'me self, f: F) -> &'a mut T {
-        let mut pointer = self.alloc_with_layout(Layout::new::<T>()).cast::<T>();
-        unsafe {
-            // Safety: passed layout ensures proper alignment
-            std::ptr::write(pointer.as_ptr(), f());
-
-            // Safety: previous line ensures T is initialized
-            pointer.as_mut()
-        }
+        self.allocate_uninit::<T>().write(f())
     }
 
     /// Allocates space for an instance of `T`, and moves the value into the allocation.
