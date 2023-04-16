@@ -179,9 +179,7 @@ pub(crate) struct RawArena {
 
 impl RawArena {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
-        let arena = Self {
-            current_chunk: Cell::new(None),
-        };
+        let arena = Self::default();
 
         if let actual_capacity @ Some(_) = NonZeroUsize::new(capacity) {
             get_next_or_allocate_chunk(&arena.current_chunk, actual_capacity).unwrap();
@@ -276,6 +274,15 @@ impl RawArena {
 
     pub(crate) unsafe fn reset(&self) {
         todo!("reset by looping")
+    }
+}
+
+impl Default for RawArena {
+    #[inline(always)]
+    fn default() -> Self {
+        Self {
+            current_chunk: Cell::new(None),
+        }
     }
 }
 

@@ -15,6 +15,9 @@ mod bump;
 mod frame;
 mod raw_arena;
 
+#[cfg(feature = "sync")]
+pub mod sync;
+
 pub use allocator::Allocator;
 pub use arena::Arena;
 pub use bump::Bump;

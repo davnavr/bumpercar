@@ -33,10 +33,8 @@ impl Arena {
     ///
     /// This allows reusing of memory allocated by the arena.
     pub fn reset(&mut self) {
-        unsafe {
-            // Safety: &mut self ensures there are no extant references that can become dangling
-            self.arena.reset()
-        }
+        // Safety: &mut self ensures there are no extant references that can become dangling
+        unsafe { self.arena.reset() }
     }
 }
 

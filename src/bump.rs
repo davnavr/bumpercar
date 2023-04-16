@@ -9,6 +9,9 @@ mod sealed {
     impl Sealed for crate::Allocator<'_> {}
     impl Sealed for crate::Arena {}
     impl Sealed for crate::Frame<'_> {}
+
+    #[cfg(feature = "sync")]
+    impl Sealed for crate::sync::ThreadAllocator<'_> {}
 }
 
 /// Contains methods for bump allocation.
