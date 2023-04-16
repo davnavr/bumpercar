@@ -296,3 +296,9 @@ impl Drop for RawArena {
         }
     }
 }
+
+impl core::fmt::Debug for RawArena {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RawArena").finish_non_exhaustive()
+    }
+}

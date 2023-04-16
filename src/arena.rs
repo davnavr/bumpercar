@@ -1,65 +1,32 @@
-use crate::raw_arena::RawArena;
-use core::ptr::NonNull;
-
 /// An arena, owns regions of memory that objects are bump allocated into.
 ///
-/// # Example
-///
-/// ```
-/// use bumpercar::prelude::*;
-///
-/// let arena = Arena::new();
-/// let my_num = arena.alloc(5i32);
-/// assert_eq!(*my_num, 5i32);
-///
-/// arena.alloc("hello");
-///
-/// *my_num = 0xABCDi32;
-/// assert_eq!(*my_num, 0xABCDi32);
-/// ```
+/// To allocate objects into the arena, see the [`allocator()`](Arena::allocator) method.
+#[derive(Debug)]
 pub struct Arena {
-    pub(crate) arena: RawArena,
+    arena: crate::raw_arena::RawArena,
 }
 
 impl Arena {
-    /// Creates an empty [`Arena`].
+    /// Creates an empty arena.
     pub fn new() -> Self {
         Self::with_capacity(0)
     }
 
-    /// Creates an [`Arena`], allocating a new chunk to contain at least `capacity` bytes.
+    /// Creates an arena, allocating a new chunk to contain at least `capacity` bytes.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            arena: RawArena::with_capacity(capacity),
+            arena: crate::raw_arena::RawArena::with_capacity(capacity),
         }
     }
-}
 
-// Safety: 'a is lifetime of arena, so allocations live as long as the arena
-unsafe impl<'a> crate::Bump<'a, 'a> for Arena {
-    fn with_frame<T, F: FnOnce(&mut crate::Frame<'a>) -> T>(&'a mut self, f: F) -> T {
-        let mut frame = crate::Frame::new(self);
-
-        // If a panic occurs, then bump pointer does not get adjusted back
-        // Only problem is unused memory (memory leak), which is not unsafe or UB
-        let result = f(&mut frame);
-
-        // Safety: calls are nested correctly
-        unsafe {
-            frame.restore();
-        }
-
-        result
-    }
-
-    fn alloc_with_layout(&'a self, layout: core::alloc::Layout) -> NonNull<u8> {
-        self.arena.alloc_with_layout(layout)
-    }
-}
-
-impl core::fmt::Debug for Arena {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Arena").finish_non_exhaustive()
+    /// Returns an [`Allocator`] used to allocate objects into the arena.
+    ///
+    /// Note that the usage of `&mut self` ensure that **only** the returned [`Allocator`]
+    /// can allocate objects into the arena.
+    ///
+    /// `Allocator`: crate::Allocator
+    pub fn allocator(&mut self) -> crate::Allocator<'_> {
+        crate::Allocator::with_arena(&mut self.arena)
     }
 }
 
@@ -69,6 +36,5 @@ impl core::default::Default for Arena {
     }
 }
 
-// Safety: Safe to send across threads, existing references into the arena are checked by the
-// borrow checker so thread sending shenanigans shouldn't occur
+// Safety: Safe to send across threads, borrow checker ensures there are no extant Allocators
 unsafe impl Send for Arena {}

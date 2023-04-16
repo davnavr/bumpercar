@@ -6,6 +6,7 @@ use core::ptr::NonNull;
 mod sealed {
     pub trait Sealed {}
 
+    impl Sealed for crate::Allocator<'_> {}
     impl Sealed for crate::Arena {}
     impl Sealed for crate::Frame<'_> {}
 }
