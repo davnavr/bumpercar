@@ -4,6 +4,7 @@
 //! [`Arena`](crate::Arena).
 
 use crate::Bump;
+use core::mem::MaybeUninit;
 use core::ops::DerefMut;
 
 /// Provides ownership for a value stored in an [`Arena`](crate::Arena), and allows running its
@@ -17,21 +18,54 @@ pub struct Box<'b, T: ?Sized> {
 
 impl<'b, T> Box<'b, T> {
     /// Allocates memory in the arena and moves the `value` into it.
-    pub fn new<'a, A: Bump<'a, 'b>>(value: T, arena: &'a A) -> Self {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bumpercar::{Allocator, Arena, boxed::Box};
+    ///
+    /// let mut arena = Arena::new();
+    /// let allocator = arena.allocator();
+    ///
+    /// let six = Box::new(6, &allocator);
+    /// ```
+    pub fn new<'a, A: Bump<'a, 'b>>(value: T, allocator: &'a A) -> Self {
         Self {
-            value: arena.alloc(value),
+            value: allocator.alloc(value),
+        }
+    }
+}
+
+impl<'b, T> Box<'b, MaybeUninit<T>> {
+    /// Allocates memory in the arena for an instance of `T`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bumpercar::{Allocator, Arena, boxed::Box};
+    ///
+    /// let mut arena = Arena::new();
+    /// let allocator = arena.allocator();
+    ///
+    /// let mut six = Box::new_uninit(&allocator);
+    /// let six = unsafe { six.write(6) };
+    /// assert_eq!(*six, 6);
+    /// ```
+    pub fn new_uninit<'a, A: Bump<'a, 'b>>(allocator: &'a A) -> Self {
+        Self {
+            value: allocator.alloc_uninit::<T>(),
         }
     }
 }
 
 impl<'b, T> Box<'b, [T]> {
     /// Allocates memory in the arena and copies the `slice` into it.
-    pub fn new_slice<'a, A: Bump<'a, 'b>>(slice: &[T], arena: &'a A) -> Self
+    pub fn new_slice<'a, A: Bump<'a, 'b>>(slice: &[T], allocator: &'a A) -> Self
     where
         T: Copy,
     {
         Self {
-            value: arena.alloc_slice(slice),
+            value: allocator.alloc_slice(slice),
         }
     }
 }
