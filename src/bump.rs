@@ -123,6 +123,16 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
         }
     }
 
+    /// Allocates space to store a string, and copies it into the arena.
+    #[inline(always)]
+    fn alloc_str(&'me self, s: &str) -> &'a mut str {
+        let bytes = self.alloc_slice(s.as_bytes());
+        unsafe {
+            // Safety: Bytes are already valid UTF-8
+            core::str::from_utf8_unchecked_mut(bytes)
+        }
+    }
+
     /// Allocates space to store the given slice, cloning each item into the arena.
     fn alloc_slice_cloned<T: Clone>(&'me self, slice: &[T]) -> &'a mut [T] {
         let destination = self.alloc_slice_uninit::<T>(slice.len());
