@@ -2,6 +2,31 @@
 //!
 //! A [`Box<'b, T>`](self::Box) Allows the running of destructors in objects stored within an
 //! [`Arena`](crate::Arena).
+//!
+//! # Example
+//!
+//! ```
+//! use bumpercar::{Allocator, Arena, boxed::Box};
+//! use core::cell::Cell;
+//!
+//! struct MyStruct<'a> {
+//!     value: &'a Cell<i32>
+//! }
+//!
+//! impl Drop for MyStruct<'_> {
+//!     fn drop(&mut self) {
+//!         self.value.set(5);
+//!     }
+//! }
+//!
+//! let mut arena = Arena::new();
+//! let allocator = arena.allocator();
+//!
+//! let cell = Cell::new(0);
+//! let thing = Box::new(MyStruct { value: &cell }, &allocator);
+//! std::mem::drop(thing);
+//! assert_eq!(cell.get(), 5);
+//! ```
 
 use crate::Bump;
 use core::mem::MaybeUninit;
@@ -19,7 +44,7 @@ pub struct Box<'b, T: ?Sized> {
 impl<'b, T> Box<'b, T> {
     /// Allocates memory in the arena and moves the `value` into it.
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```
     /// use bumpercar::{Allocator, Arena, boxed::Box};
