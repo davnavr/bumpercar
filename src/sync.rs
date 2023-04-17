@@ -83,3 +83,12 @@ impl Default for SharedArena {
         Self::new()
     }
 }
+
+// Safety: Safe to share, Mutex guards arenas and only hands them out to one thread at a time
+unsafe impl Sync for SharedArena {}
+
+// Safety: Safe to send across threads, data guarded by Mutex
+unsafe impl Send for SharedArena {}
+
+// Safety: Borrow checker ensures no dangling pointers if allocator is sent across threads
+unsafe impl Send for ThreadAllocator<'_> {}
