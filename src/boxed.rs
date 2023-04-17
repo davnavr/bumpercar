@@ -3,6 +3,7 @@
 //! A [`Box<'b, T>`](self::Box) Allows the running of destructors in objects stored within an
 //! [`Arena`](crate::Arena).
 
+use crate::private::Try;
 use crate::Bump;
 use core::mem::MaybeUninit;
 use core::ops::DerefMut;
@@ -114,7 +115,8 @@ impl<'b, T> Box<'b, [T]> {
     /// let items = Box::from_iter(source.iter().copied(), &allocator);
     /// assert_eq!(items.as_ref(), source.as_slice());
     /// ```
-    pub fn from_iter<'a, I, A>(items: I, allocator: &'a A) -> Self
+    #[inline(always)]
+    pub fn from_iter<'a, A, I>(items: I, allocator: &'a A) -> Self
     where
         I: IntoIterator<Item = T>,
         I::IntoIter: ExactSizeIterator,
@@ -123,6 +125,19 @@ impl<'b, T> Box<'b, [T]> {
         Self {
             value: allocator.alloc_slice_from_iter(items),
         }
+    }
+
+    /// Allocates memory in the arena for a slice to contain the values yielded by an iterator that
+    /// may fail early.
+    pub fn try_from_iter<'a, E, A, I>(items: I, allocator: &'a A) -> Result<Self, E>
+    where
+        I: IntoIterator<Item = Result<T, E>>,
+        I::IntoIter: ExactSizeIterator,
+        A: Bump<'a, 'b>,
+    {
+        allocator
+            .alloc_slice_try_from_iter(items)
+            .map(|value| Self { value })
     }
 }
 

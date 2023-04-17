@@ -1,5 +1,6 @@
 //! Contains the [`Bump`] trait.
 
+use crate::private::Try;
 use core::alloc::Layout;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
@@ -49,7 +50,7 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     /// pointers into the allocated object, since it would be immediately deallocated.
     unsafe fn alloc_try_with_layout<R, F>(&'me self, layout: Layout, f: F) -> R
     where
-        R: crate::private::Try,
+        R: Try,
         F: FnOnce(NonNull<u8>) -> R;
 
     /// Allocates space for an instance of `T`.
@@ -68,7 +69,7 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     fn alloc_try_uninit<T, R, F>(&'me self, f: F) -> R
     where
         T: 'a,
-        R: crate::private::Try,
+        R: Try,
         F: FnOnce(&'a mut MaybeUninit<T>) -> R,
     {
         let alloc_f = |pointer: NonNull<u8>| {
@@ -189,5 +190,77 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
 
         // Safety: [T] and [MaybeUninit<T>] have the same layout, destination is initialized
         unsafe { core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(destination) }
+    }
+
+    /// Allocates a slice of the specified `length`, using a closure to attempt to obtain values to fill the slice.
+    ///
+    /// The closure receives the index of the item, and may return [`None`] or [`Err`] to deallocate the slice.
+    fn alloc_slice_try_with<T, E, F>(&'me self, length: usize, mut f: F) -> Result<&'a mut [T], E>
+    where
+        F: FnMut(usize) -> Result<T, E>,
+    {
+        let attempt = move |allocation: NonNull<u8>| -> Result<&'a mut [T], E> {
+            // Safety: layout ensures length is valid, allocation is a valid pointer
+            let destination = unsafe {
+                core::slice::from_raw_parts_mut::<'a, _>(
+                    allocation.cast::<MaybeUninit<T>>().as_ptr(),
+                    length,
+                )
+            };
+
+            for (i, item) in destination.iter_mut().enumerate() {
+                item.write(f(i)?);
+            }
+
+            // Safety: [T] and [MaybeUninit<T>] have the same layout, destination is fully initialized
+            Ok(unsafe {
+                core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(destination)
+            })
+        };
+
+        // Safety: Closure error does not cause dangling pointers
+        unsafe { self.alloc_try_with_layout(Layout::array::<T>(length).unwrap(), attempt) }
+    }
+
+    /// Allocates a slice to contain the items yielded by an iterator that may fail early.
+    ///
+    /// # Panics
+    ///
+    /// See the documentation for [`Bump::alloc_slice_from_iter`](Bump::alloc_slice_from_iter) for more information.
+    fn alloc_slice_try_from_iter<T, E, I>(&'me self, items: I) -> Result<&'a mut [T], E>
+    where
+        I: IntoIterator<Item = Result<T, E>>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let items_iter = items.into_iter();
+        let layout = Layout::array::<T>(items_iter.len()).unwrap();
+        let attempt = move |allocation: NonNull<u8>| -> Result<&'a mut [T], E> {
+            // Safety: layout ensures length is valid, allocation is a valid pointer
+            let destination = unsafe {
+                core::slice::from_raw_parts_mut::<'a, _>(
+                    allocation.cast::<MaybeUninit<T>>().as_ptr(),
+                    items_iter.len(),
+                )
+            };
+
+            let mut actual_length = 0usize;
+            let mut destination_iter = destination.iter_mut();
+            for value in items_iter {
+                destination_iter
+                    .next()
+                    .expect("iterator yielded too many items")
+                    .write(value?);
+                actual_length += 1;
+            }
+
+            // If iterator "lies" and returns too few items, then slice
+            let slice = &mut destination[0..actual_length];
+
+            // Safety: [T] and [MaybeUninit<T>] have the same layout, slice is initialized
+            Ok(unsafe { core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(slice) })
+        };
+
+        // Safety: Closure error does not cause dangling pointers
+        unsafe { self.alloc_try_with_layout(layout, attempt) }
     }
 }
