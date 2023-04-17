@@ -134,4 +134,32 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
         // Safety: [T] and [MaybeUninit<T>] have the same layout, destination is initialized
         unsafe { core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(destination) }
     }
+
+    /// Allocates a slice to contain the items yielded by the iterator.
+    ///
+    /// # Panics
+    ///
+    /// Panics if enough memory to contain the slice could not be allocated, or if the iterator
+    /// yielded more items than it said it would.
+    fn alloc_slice_from_iter<T, I>(&'me self, items: I) -> &'a mut [T]
+    where
+        I: IntoIterator<Item = T>,
+        I::IntoIter: ExactSizeIterator
+    {
+        let items_iter = items.into_iter();
+        let destination = self.alloc_slice_uninit::<I::Item>(items_iter.len());
+
+        let mut actual_length = 0usize;
+        let mut destination_iter = destination.iter_mut();
+        for value in items_iter {
+            destination_iter.next().expect("iterator yielded too many items").write(value);
+            actual_length += 1;
+        }
+
+        // If iterator "lies" and returns too few items, then slice
+        let slice = &mut destination[0..actual_length];
+
+        // Safety: [T] and [MaybeUninit<T>] have the same layout, slice is initialized
+        unsafe { core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(slice) }
+    }
 }
