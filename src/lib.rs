@@ -16,6 +16,7 @@ mod frame;
 mod private;
 mod raw_arena;
 
+pub mod boxed;
 #[cfg(feature = "sync")]
 pub mod sync;
 
