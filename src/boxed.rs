@@ -69,13 +69,39 @@ impl<'b, T> Box<'b, [T]> {
         }
     }
 
+    /// Allocates memory in the arena for a slice, using the closure to fill the slice.
+    ///
+    /// See the documentation [`Bump::alloc_slice_with`](Bump::alloc_slice_with) for more
+    /// information.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use bumpercar::{Allocator, Arena, boxed::Box};
+    ///
+    /// let mut arena = Arena::new();
+    /// let allocator = arena.allocator();
+    ///
+    /// let items = Box::new_with(&allocator, 4, |i| i);
+    /// assert_eq!(items.as_ref(), &[0usize, 1, 2, 3]);
+    /// ```
+    pub fn new_with<'a, A, F>(allocator: &'a A, length: usize, f: F) -> Self
+    where
+        A: Bump<'a, 'b>,
+        F: FnMut(usize) -> T,
+    {
+        Self {
+            value: allocator.alloc_slice_with(length, f),
+        }
+    }
+
     /// Allocates memory in the arena for a slice to contain the values yielded by an iterator.
     ///
     /// # Panics
     ///
     /// See the documentation for
     /// [`Bump::alloc_slice_from_iter`](crate::Bump::alloc_slice_from_iter) for more information.
-    /// 
+    ///
     /// # Example
     ///
     /// ```

@@ -127,10 +127,8 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     #[inline(always)]
     fn alloc_str(&'me self, s: &str) -> &'a mut str {
         let bytes = self.alloc_slice(s.as_bytes());
-        unsafe {
-            // Safety: Bytes are already valid UTF-8
-            core::str::from_utf8_unchecked_mut(bytes)
-        }
+        // Safety: Bytes are already valid UTF-8
+        unsafe { core::str::from_utf8_unchecked_mut(bytes) }
     }
 
     /// Allocates space to store the given slice, cloning each item into the arena.
@@ -174,5 +172,22 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
 
         // Safety: [T] and [MaybeUninit<T>] have the same layout, slice is initialized
         unsafe { core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(slice) }
+    }
+
+    /// Allocates a slice of the specified `length`, passing indices to a closure to obtain values to
+    /// fill the slice.
+    fn alloc_slice_with<T, F: FnMut(usize) -> T>(
+        &'me self,
+        length: usize,
+        mut f: F,
+    ) -> &'a mut [T] {
+        let destination = self.alloc_slice_uninit::<T>(length);
+
+        for (i, item) in destination.iter_mut().enumerate() {
+            item.write(f(i));
+        }
+
+        // Safety: [T] and [MaybeUninit<T>] have the same layout, destination is initialized
+        unsafe { core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(destination) }
     }
 }
