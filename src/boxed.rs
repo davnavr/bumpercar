@@ -3,7 +3,6 @@
 //! A [`Box<'b, T>`](self::Box) Allows the running of destructors in objects stored within an
 //! [`Arena`](crate::Arena).
 
-use crate::private::Try;
 use crate::Bump;
 use core::mem::MaybeUninit;
 use core::ops::DerefMut;
@@ -129,6 +128,19 @@ impl<'b, T> Box<'b, [T]> {
 
     /// Allocates memory in the arena for a slice to contain the values yielded by an iterator that
     /// may fail early.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use bumpercar::{Allocator, Arena, boxed::Box};
+    ///
+    /// let mut arena = Arena::new();
+    /// let allocator = arena.allocator();
+    ///
+    /// let source = [Ok(64), Ok(128), u8::try_from(256)];
+    /// let items = Box::try_from_iter(source.iter().copied(), &allocator);
+    /// assert!(items.is_err());
+    /// ```
     pub fn try_from_iter<'a, E, A, I>(items: I, allocator: &'a A) -> Result<Self, E>
     where
         I: IntoIterator<Item = Result<T, E>>,

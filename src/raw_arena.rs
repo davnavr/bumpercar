@@ -169,6 +169,25 @@ fn get_next_or_allocate_chunk(
     Ok(chunk)
 }
 
+struct Chunks<'a> {
+    current: Option<&'a ChunkHeader>,
+}
+
+impl<'a> Iterator for Chunks<'a> {
+    type Item = &'a ChunkHeader;
+
+    fn next(&mut self) -> Option<&'a ChunkHeader> {
+        let previous = self.current;
+        self.current = self.current.and_then(|header| {
+            header.previous.map(|previous| {
+                // Safety: valid for lifetime 'a
+                unsafe { previous.as_ref() }
+            })
+        });
+        previous
+    }
+}
+
 /// Low-level bump allocator that uses memory from the global allocator.
 ///
 /// Users should ensure that they do not use pointers to allocated objects
@@ -296,8 +315,19 @@ impl RawArena {
         }
     }
 
+    fn chunks(&self) -> Chunks<'_> {
+        Chunks {
+            current: self.current_chunk.get().map(|chunk| {
+                // Safety: valid for lifetime of self
+                unsafe { chunk.as_ref() }
+            }),
+        }
+    }
+
     pub(crate) unsafe fn reset(&self) {
-        todo!("reset by looping")
+        for header in self.chunks() {
+            header.finger.set(header.end);
+        }
     }
 }
 
@@ -312,18 +342,9 @@ impl Default for RawArena {
 
 impl Drop for RawArena {
     fn drop(&mut self) {
-        let mut current_chunk = self.current_chunk.get();
-        while let Some(chunk) = current_chunk {
-            let previous;
-
-            // Safety: pointer to chunk is valid
-            unsafe {
-                let header = chunk.as_ref();
-                previous = header.previous;
-                alloc::dealloc(chunk.as_ptr() as *mut u8, header.layout)
-            }
-
-            current_chunk = previous;
+        for header in self.chunks() {
+            // Safety: pointer to chunk is valid, layout is the same
+            unsafe { alloc::dealloc(header as *const ChunkHeader as *mut u8, header.layout) }
         }
     }
 }
