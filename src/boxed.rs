@@ -68,6 +68,36 @@ impl<'b, T> Box<'b, [T]> {
             value: allocator.alloc_slice(slice),
         }
     }
+
+    /// Allocates memory in the arena for a slice to contain the values yielded by an iterator.
+    ///
+    /// # Panics
+    ///
+    /// See the documentation for
+    /// [`Bump::alloc_slice_from_iter`](crate::Bump::alloc_slice_from_iter) for more information.
+    /// 
+    /// # Example
+    ///
+    /// ```
+    /// use bumpercar::{Allocator, Arena, boxed::Box};
+    ///
+    /// let mut arena = Arena::new();
+    /// let allocator = arena.allocator();
+    ///
+    /// let source = [1, 2, 3];
+    /// let items = Box::from_iter(source.iter().copied(), &allocator);
+    /// assert_eq!(items.as_ref(), source.as_slice());
+    /// ```
+    pub fn from_iter<'a, I, A>(items: I, allocator: &'a A) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        I::IntoIter: ExactSizeIterator,
+        A: Bump<'a, 'b>,
+    {
+        Self {
+            value: allocator.alloc_slice_from_iter(items),
+        }
+    }
 }
 
 impl<'b, T: ?Sized> Box<'b, T> {

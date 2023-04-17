@@ -144,7 +144,7 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     fn alloc_slice_from_iter<T, I>(&'me self, items: I) -> &'a mut [T]
     where
         I: IntoIterator<Item = T>,
-        I::IntoIter: ExactSizeIterator
+        I::IntoIter: ExactSizeIterator,
     {
         let items_iter = items.into_iter();
         let destination = self.alloc_slice_uninit::<I::Item>(items_iter.len());
@@ -152,7 +152,10 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
         let mut actual_length = 0usize;
         let mut destination_iter = destination.iter_mut();
         for value in items_iter {
-            destination_iter.next().expect("iterator yielded too many items").write(value);
+            destination_iter
+                .next()
+                .expect("iterator yielded too many items")
+                .write(value);
             actual_length += 1;
         }
 
