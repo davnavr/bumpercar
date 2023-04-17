@@ -93,4 +93,47 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     fn alloc<T>(&'me self, value: T) -> &'a mut T {
         self.alloc_with(|| value)
     }
+
+    /// Allocates space to store the given slice, and copies the slice into the arena.
+    #[inline(always)]
+    fn alloc_slice<T: Copy>(&'me self, slice: &[T]) -> &'a mut [T] {
+        let allocation = self.alloc_with_layout(Layout::for_value(slice));
+
+        // Safety: layout ensures lengths are the same, allocation is a valid pointer
+        let destination = unsafe {
+            core::slice::from_raw_parts_mut::<'a, _>(
+                allocation.cast::<MaybeUninit<T>>().as_ptr(),
+                slice.len(),
+            )
+        };
+
+        // Safety: [T] and [MaybeUninit<T>] have the same layout
+        unsafe {
+            let source: &[MaybeUninit<T>] = core::mem::transmute::<&[T], _>(slice);
+
+            destination.copy_from_slice(source);
+
+            core::mem::transmute::<_, &'a mut [T]>(destination)
+        }
+    }
+
+    /// Allocates space to store the given slice, cloning each item into the arena.
+    fn alloc_slice_cloned<T: Clone>(&'me self, slice: &[T]) -> &'a mut [T] {
+        let allocation = self.alloc_with_layout(Layout::for_value(slice));
+
+        // Safety: layout ensures lengths are the same, allocation is a valid pointer
+        let destination = unsafe {
+            core::slice::from_raw_parts_mut::<'a, _>(
+                allocation.cast::<MaybeUninit<T>>().as_ptr(),
+                slice.len(),
+            )
+        };
+
+        for i in 0..slice.len() {
+            destination[i].write(slice[i].clone());
+        }
+
+        // Safety: [T] and [MaybeUninit<T>] have the same layout, destination is initialized
+        unsafe { core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(destination) }
+    }
 }
