@@ -38,13 +38,6 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     /// Panics if any calls to an underlying memory allocator fail.
     fn alloc_with_layout(&'me self, layout: Layout) -> NonNull<u8>;
 
-    /// Allocates space for an instance of `T`.
-    #[inline(always)]
-    fn alloc_uninit<T>(&'me self) -> &'a mut MaybeUninit<T> {
-        // Safety: passed layout ensures proper alignment
-        unsafe { self.alloc_with_layout(Layout::new::<T>()).cast().as_mut() }
-    }
-
     /// Allocates space for an object with the given [`Layout`], and passes the pointer to a
     /// closure that returns a [`Result<T>`] or [`Option<T>`].
     ///
@@ -58,6 +51,36 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     where
         R: crate::private::Try,
         F: FnOnce(NonNull<u8>) -> R;
+
+    /// Allocates space for an instance of `T`.
+    #[inline(always)]
+    fn alloc_uninit<T>(&'me self) -> &'a mut MaybeUninit<T> {
+        // Safety: passed layout ensures proper alignment
+        unsafe { self.alloc_with_layout(Layout::new::<T>()).cast().as_mut() }
+    }
+
+    /// Allocates space for an instance of `T`, and provides a pointer to `T` to a closure.
+    ///
+    /// If the closure returns [`Err`] or [`None`], then the object is deallocated.
+    ///
+    /// See [`alloc_try_with_layout`](Bump::alloc_try_with_layout) for more information.
+    #[inline(always)]
+    fn alloc_try_uninit<T, R, F>(&'me self, f: F) -> R
+    where
+        T: 'a,
+        R: crate::private::Try,
+        F: FnOnce(&'a mut MaybeUninit<T>) -> R,
+    {
+        let alloc_f = |pointer: NonNull<u8>| {
+            f({
+                // Safety: passed layout ensures pointer can be turned into a valid reference
+                unsafe { pointer.cast().as_mut() }
+            })
+        };
+
+        // Safety: parameter of F is tied to a lifetime, errors won't cause dangling pointers
+        unsafe { self.alloc_try_with_layout::<R, _>(Layout::new::<T>(), alloc_f) }
+    }
 
     /// Allocates space for an instance of `T`, and initializes it with the given closure.
     #[inline(always)]
