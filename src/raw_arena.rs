@@ -28,7 +28,7 @@ impl core::fmt::Display for OutOfMemory {
 type Result<T> = core::result::Result<T, OutOfMemory>;
 
 /// Allows for quick deallocation of a portion of a [`RawArena`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RawArenaState {
     chunk: NonNull<ChunkHeader>,
     finger: NonNull<u8>,
@@ -223,16 +223,19 @@ impl RawArena {
         R: crate::private::Try,
         F: FnOnce(NonNull<u8>) -> R,
     {
-        let state = self.current_state();
+        let rewind_state = self.current_state();
         let allocation = self.alloc_with_layout(layout);
+        let success_state = self.current_state();
 
         // No UB if panic occurs here
         let result = f(allocation);
 
-        if !result.is_success() {
+        // Check that state has not changed, closure may have called arena methods which may lead
+        // to dangling pointers
+        if !result.is_success() && self.current_state() == success_state {
             // Safety: calls are nested correctly
             unsafe {
-                self.restore_state(state);
+                self.restore_state(rewind_state);
             }
         }
 
