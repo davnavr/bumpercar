@@ -10,6 +10,7 @@ use core::ops::DerefMut;
 /// [`Drop`](core::ops::Drop) implementation.
 ///
 /// See the [module level documentation](crate::boxed) for more information.
+#[derive(Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Box<'b, T: ?Sized> {
     value: &'b mut T,
 }
@@ -127,6 +128,12 @@ impl<T: core::fmt::Display + ?Sized> core::fmt::Display for Box<'_, T> {
     }
 }
 
+impl<T: ?Sized> core::fmt::Pointer for Box<'_, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        <*const T as core::fmt::Pointer>::fmt(&(self.value as *const T), f)
+    }
+}
+
 #[cfg(feature = "std")]
 impl<T: std::error::Error> std::error::Error for Box<'_, T> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
@@ -134,8 +141,42 @@ impl<T: std::error::Error> std::error::Error for Box<'_, T> {
     }
 }
 
-impl<T: core::cmp::PartialEq> core::cmp::PartialEq for Box<'_, T> {
-    fn eq(&self, other: &Self) -> bool {
-        <T as core::cmp::PartialEq>::eq(&self, other)
+impl<T: core::iter::Iterator + ?Sized> core::iter::Iterator for Box<'_, T> {
+    type Item = <T as core::iter::Iterator>::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.value.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.value.size_hint()
+    }
+
+    fn last(self) -> Option<Self::Item>
+    where
+        Self: Sized,
+    {
+        self.value.last()
+    }
+
+    fn count(self) -> usize
+    where
+        Self: Sized,
+    {
+        self.value.count()
     }
 }
+
+impl<T: core::iter::ExactSizeIterator + ?Sized> core::iter::ExactSizeIterator for Box<'_, T> {
+    fn len(&self) -> usize {
+        self.value.len()
+    }
+}
+
+impl<T: core::iter::DoubleEndedIterator + ?Sized> core::iter::DoubleEndedIterator for Box<'_, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.value.next_back()
+    }
+}
+
+impl<T: core::iter::FusedIterator + ?Sized> core::iter::FusedIterator for Box<'_, T> {}
