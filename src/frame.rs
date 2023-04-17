@@ -1,7 +1,6 @@
 use crate::raw_arena::{RawArena, RawArenaState};
 
-/// Allows bump allocating and deallocating into a portion of an [`Arena`](crate::Arena).
-///
+/// A bump allocator that allocates objects into a portion of an [`Arena`](crate::Arena).
 /// # Examples
 ///
 /// ```
@@ -15,43 +14,37 @@ use crate::raw_arena::{RawArena, RawArenaState};
 ///     let b = frame.alloc(*a - 32);
 ///     println!("Hello {b}!");
 ///
-///     // This is a compile error, the frame has to be used to allocate new objects
-///     //allocator.alloc(5);
-///
 ///     frame.with_frame(|frame| {
 ///         let c = frame.alloc(*b * 2);
 ///         println!("{c}");
 ///     });
 /// });
 /// ```
-pub struct Frame<'a> {
-    arena: &'a mut RawArena,
-    state: Option<RawArenaState>,
+///
+/// ```compile_fail
+/// let mut allocator = arena.allocator();
+/// allocator.with_frame(|mut frame| {
+///     // Does not compile, cannot return reference to object in frame since it is deallocated
+///     frame.alloc(32);
+/// });
+/// ```
+/// 
+/// ```compile_fail
+/// let mut allocator = arena.allocator();
+/// allocator.with_frame(|mut frame| {
+///     // Does not compile, frame must be used for allocations
+///     let _ = allocator.alloc(42);
+/// });
+/// ```
+#[derive(Debug)]
+pub struct Frame<'a: 'f, 'f> {
+    arena: &'f mut &'a mut RawArena,
 }
 
-impl<'a> Frame<'a> {
-    pub(crate) fn with_arena(arena: &'a mut RawArena) -> Self {
-        Self {
-            state: arena.current_state(),
-            arena,
-        }
-    }
-
-    pub(crate) unsafe fn restore(self) {
-        // Safety: ensured by caller
-        unsafe {
-            self.arena.restore_state(self.state);
-        }
-    }
-
-    pub(crate) fn in_arena<'f, T, F: FnOnce(&mut Frame<'f>) -> T>(
-        arena: &'a mut RawArena,
-        f: F,
-    ) -> T
-    where
-        'a: 'f,
-    {
-        let mut frame = Frame::with_arena(arena);
+impl<'a: 'f, 'f> Frame<'a, 'f> {
+    pub(crate) fn in_arena<T, F: FnOnce(&mut Frame<'a, '_>) -> T>(mut arena: &'a mut RawArena, f: F) -> T {
+        let state: Option<RawArenaState> = arena.current_state();
+        let mut frame = Frame::<'a, '_> { arena: &mut arena };
 
         // If a panic occurs, then bump pointer does not get adjusted back
         // Only problem is unused memory (memory leak), which is not unsafe or UB
@@ -59,7 +52,7 @@ impl<'a> Frame<'a> {
 
         // Safety: calls are nested correctly
         unsafe {
-            frame.restore();
+            arena.restore_state(state);
         }
 
         result
@@ -68,20 +61,14 @@ impl<'a> Frame<'a> {
 
 // Safety: 'f is the lifetime of the frame, which is less than the lifetime of the arena 'a,
 // so allocations live for the lifetime of the frame
-unsafe impl<'a: 'f, 'f> crate::Bump<'f, 'f> for Frame<'a> {
-    // TODO: Have a 'me lifetime?
+unsafe impl<'a: 'f, 'f: 'me, 'me> crate::Bump<'me, 'f> for Frame<'a, 'f> {
     #[inline]
-    fn with_frame<T, F: FnOnce(&mut crate::Frame<'f>) -> T>(&'f mut self, f: F) -> T {
-        Frame::in_arena::<'f, T, F>(self.arena, f)
+    fn with_frame<T, F: FnOnce(&mut Frame) -> T>(&'me mut self, f: F) -> T {
+        Frame::in_arena::<T, F>(self.arena, f)
     }
 
-    fn alloc_with_layout(&'f self, layout: core::alloc::Layout) -> core::ptr::NonNull<u8> {
+    #[inline]
+    fn alloc_with_layout(&'me self, layout: core::alloc::Layout) -> core::ptr::NonNull<u8> {
         self.arena.alloc_with_layout(layout)
-    }
-}
-
-impl core::fmt::Debug for Frame<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("Frame").field(&self.state).finish()
     }
 }

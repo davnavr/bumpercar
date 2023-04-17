@@ -7,8 +7,7 @@ mod sealed {
     pub trait Sealed {}
 
     impl Sealed for crate::Allocator<'_> {}
-    impl Sealed for crate::Arena {}
-    impl Sealed for crate::Frame<'_> {}
+    impl Sealed for crate::Frame<'_, '_> {}
 
     #[cfg(feature = "sync")]
     impl Sealed for crate::sync::ThreadAllocator<'_> {}
@@ -29,7 +28,7 @@ mod sealed {
 pub unsafe trait Bump<'me, 'a>: sealed::Sealed {
     /// Calls a closure with a [`Frame`](crate::Frame) used to tie the lifetime of allocations made
     /// into an arena to a stack frame.
-    fn with_frame<T, F: FnOnce(&mut crate::Frame<'me>) -> T>(&'me mut self, f: F) -> T;
+    fn with_frame<T, F: FnOnce(&mut crate::Frame) -> T>(&'me mut self, f: F) -> T;
 
     /// Allocates space for an object with the given [`Layout`], returning a valid pointer to it.
     ///

@@ -21,10 +21,10 @@ impl Arena {
 
     /// Returns an [`Allocator`] used to allocate objects into the arena.
     ///
-    /// Note that the usage of `&mut self` ensure that **only** the returned [`Allocator`]
+    /// Note that the usage of `&mut self` ensures that **only** the returned [`Allocator`]
     /// can allocate objects into the arena.
     ///
-    /// `Allocator`: crate::Allocator
+    /// [`Allocator`]: crate::Allocator
     pub fn allocator(&mut self) -> crate::Allocator<'_> {
         crate::Allocator::with_arena(&mut self.arena)
     }

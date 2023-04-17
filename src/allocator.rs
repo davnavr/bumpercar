@@ -34,11 +34,13 @@ impl<'a> Allocator<'a> {
 
 // Safety: Allocator 'me lives as long as the arena 'a
 unsafe impl<'me, 'a: 'me> crate::Bump<'me, 'a> for Allocator<'a> {
+    #[inline]
     fn alloc_with_layout(&'me self, layout: core::alloc::Layout) -> core::ptr::NonNull<u8> {
         self.arena.alloc_with_layout(layout)
     }
 
-    fn with_frame<T, F: FnOnce(&mut crate::Frame<'me>) -> T>(&'me mut self, f: F) -> T {
+    #[inline]
+    fn with_frame<T, F: FnOnce(&mut crate::Frame) -> T>(&'me mut self, f: F) -> T {
         crate::Frame::in_arena(self.arena, f)
     }
 }

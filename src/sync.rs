@@ -18,12 +18,13 @@ pub struct ThreadAllocator<'a> {
 
 // Safety: SharedArena lives for 'a, contains all arenas, and outlives 'me
 unsafe impl<'me, 'a: 'me> crate::Bump<'me, 'a> for ThreadAllocator<'a> {
+    #[inline]
     fn alloc_with_layout(&'me self, layout: core::alloc::Layout) -> core::ptr::NonNull<u8> {
         self.arena.alloc_with_layout(layout)
     }
 
     #[inline(always)]
-    fn with_frame<T, F: FnOnce(&mut crate::Frame<'me>) -> T>(&'me mut self, f: F) -> T {
+    fn with_frame<T, F: FnOnce(&mut crate::Frame) -> T>(&'me mut self, f: F) -> T {
         crate::Frame::in_arena(&mut self.arena, f)
     }
 }
@@ -36,9 +37,9 @@ impl SharedArena {
         }
     }
 
-    /// Marks the memory used by each [`Arena`] as being freed.
+    /// Marks the memory used by each [`Arena`](crate::Arena) as being freed.
     ///
-    /// See [`Arena::reset()`](Arena::reset) for more information.
+    /// See [`Arena::reset()`](crate::Arena::reset) for more information.
     pub fn reset(&mut self) {
         for arena in self.arenas.get_mut().unwrap().iter_mut() {
             // Safety: &mut self ensures no extant references into arena
