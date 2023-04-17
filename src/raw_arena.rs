@@ -218,6 +218,27 @@ impl RawArena {
         unsafe { chunk.as_ref() }.fast_alloc_with_layout(layout)
     }
 
+    pub(crate) unsafe fn alloc_try_with_layout<R, F>(&self, layout: Layout, f: F) -> R
+    where
+        R: crate::private::Try,
+        F: FnOnce(NonNull<u8>) -> R,
+    {
+        let state = self.current_state();
+        let allocation = self.alloc_with_layout(layout);
+
+        // No UB if panic occurs here
+        let result = f(allocation);
+
+        if !result.is_success() {
+            // Safety: calls are nested correctly
+            unsafe {
+                self.restore_state(state);
+            }
+        }
+
+        result
+    }
+
     /// Returns an [`ArenaState`], a snapshot of the state of this arena's chunks.
     pub(crate) fn current_state(&self) -> Option<RawArenaState> {
         self.current_chunk.get().map(|chunk| {

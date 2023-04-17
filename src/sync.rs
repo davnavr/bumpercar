@@ -18,7 +18,7 @@ pub struct ThreadAllocator<'a> {
 
 // Safety: SharedArena lives for 'a, contains all arenas, and outlives 'me
 unsafe impl<'me, 'a: 'me> crate::Bump<'me, 'a> for ThreadAllocator<'a> {
-    #[inline]
+    #[inline(always)]
     fn alloc_with_layout(&'me self, layout: core::alloc::Layout) -> core::ptr::NonNull<u8> {
         self.arena.alloc_with_layout(layout)
     }
@@ -26,6 +26,16 @@ unsafe impl<'me, 'a: 'me> crate::Bump<'me, 'a> for ThreadAllocator<'a> {
     #[inline(always)]
     fn with_frame<T, F: FnOnce(&mut crate::Frame) -> T>(&'me mut self, f: F) -> T {
         crate::Frame::in_arena(&mut self.arena, f)
+    }
+
+    #[inline(always)]
+    unsafe fn alloc_try_with_layout<R, F>(&'me self, layout: core::alloc::Layout, f: F) -> R
+    where
+        R: crate::private::Try,
+        F: FnOnce(core::ptr::NonNull<u8>) -> R,
+    {
+        // Safety: ensured by caller
+        unsafe { self.arena.alloc_try_with_layout(layout, f) }
     }
 }
 

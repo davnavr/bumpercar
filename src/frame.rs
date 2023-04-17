@@ -28,7 +28,7 @@ use crate::raw_arena::{RawArena, RawArenaState};
 ///     frame.alloc(32);
 /// });
 /// ```
-/// 
+///
 /// ```compile_fail
 /// let mut allocator = arena.allocator();
 /// allocator.with_frame(|mut frame| {
@@ -42,7 +42,10 @@ pub struct Frame<'a: 'f, 'f> {
 }
 
 impl<'a: 'f, 'f> Frame<'a, 'f> {
-    pub(crate) fn in_arena<T, F: FnOnce(&mut Frame<'a, '_>) -> T>(mut arena: &'a mut RawArena, f: F) -> T {
+    pub(crate) fn in_arena<T, F: FnOnce(&mut Frame<'a, '_>) -> T>(
+        mut arena: &'a mut RawArena,
+        f: F,
+    ) -> T {
         let state: Option<RawArenaState> = arena.current_state();
         let mut frame = Frame::<'a, '_> { arena: &mut arena };
 
@@ -62,13 +65,23 @@ impl<'a: 'f, 'f> Frame<'a, 'f> {
 // Safety: 'f is the lifetime of the frame, which is less than the lifetime of the arena 'a,
 // so allocations live for the lifetime of the frame
 unsafe impl<'a: 'f, 'f: 'me, 'me> crate::Bump<'me, 'f> for Frame<'a, 'f> {
-    #[inline]
+    #[inline(always)]
     fn with_frame<T, F: FnOnce(&mut Frame) -> T>(&'me mut self, f: F) -> T {
         Frame::in_arena::<T, F>(self.arena, f)
     }
 
-    #[inline]
+    #[inline(always)]
     fn alloc_with_layout(&'me self, layout: core::alloc::Layout) -> core::ptr::NonNull<u8> {
         self.arena.alloc_with_layout(layout)
+    }
+
+    #[inline(always)]
+    unsafe fn alloc_try_with_layout<R, F>(&'me self, layout: core::alloc::Layout, f: F) -> R
+    where
+        R: crate::private::Try,
+        F: FnOnce(core::ptr::NonNull<u8>) -> R,
+    {
+        // Safety: ensured by caller
+        unsafe { self.arena.alloc_try_with_layout(layout, f) }
     }
 }

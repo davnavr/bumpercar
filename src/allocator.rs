@@ -34,13 +34,23 @@ impl<'a> Allocator<'a> {
 
 // Safety: Allocator 'me lives as long as the arena 'a
 unsafe impl<'me, 'a: 'me> crate::Bump<'me, 'a> for Allocator<'a> {
-    #[inline]
+    #[inline(always)]
     fn alloc_with_layout(&'me self, layout: core::alloc::Layout) -> core::ptr::NonNull<u8> {
         self.arena.alloc_with_layout(layout)
     }
 
-    #[inline]
+    #[inline(always)]
     fn with_frame<T, F: FnOnce(&mut crate::Frame) -> T>(&'me mut self, f: F) -> T {
         crate::Frame::in_arena(self.arena, f)
+    }
+
+    #[inline(always)]
+    unsafe fn alloc_try_with_layout<R, F>(&'me self, layout: core::alloc::Layout, f: F) -> R
+    where
+        R: crate::private::Try,
+        F: FnOnce(core::ptr::NonNull<u8>) -> R,
+    {
+        // Safety: ensured by caller
+        unsafe { self.arena.alloc_try_with_layout(layout, f) }
     }
 }

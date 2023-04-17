@@ -1,9 +1,10 @@
 //! Contains the [`Bump`] trait.
 
 use core::alloc::Layout;
+use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 
-mod sealed {
+mod private {
     pub trait Sealed {}
 
     impl Sealed for crate::Allocator<'_> {}
@@ -25,7 +26,7 @@ mod sealed {
 ///
 /// Additionally, requests to allocate zero-sized values must yield a pointer that can be
 /// transmuted into a valid mutable reference.
-pub unsafe trait Bump<'me, 'a>: sealed::Sealed {
+pub unsafe trait Bump<'me, 'a>: private::Sealed {
     /// Calls a closure with a [`Frame`](crate::Frame) used to tie the lifetime of allocations made
     /// into an arena to a stack frame.
     fn with_frame<T, F: FnOnce(&mut crate::Frame) -> T>(&'me mut self, f: F) -> T;
@@ -38,15 +39,30 @@ pub unsafe trait Bump<'me, 'a>: sealed::Sealed {
     fn alloc_with_layout(&'me self, layout: Layout) -> NonNull<u8>;
 
     /// Allocates space for an instance of `T`.
-    fn allocate_uninit<T>(&'me self) -> &'a mut core::mem::MaybeUninit<T> {
+    #[inline(always)]
+    fn alloc_uninit<T>(&'me self) -> &'a mut MaybeUninit<T> {
         // Safety: passed layout ensures proper alignment
         unsafe { self.alloc_with_layout(Layout::new::<T>()).cast().as_mut() }
     }
 
+    /// Allocates space for an object with the given [`Layout`], and passes the pointer to a
+    /// closure that returns a [`Result<T>`] or [`Option<T>`].
+    ///
+    /// If the closure returns [`Err`] or [`None`], then the object is deallocated.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that any error value returned by the closure does not contain
+    /// pointers into the allocated object, since it would be immediately deallocated.
+    unsafe fn alloc_try_with_layout<R, F>(&'me self, layout: Layout, f: F) -> R
+    where
+        R: crate::private::Try,
+        F: FnOnce(NonNull<u8>) -> R;
+
     /// Allocates space for an instance of `T`, and initializes it with the given closure.
     #[inline(always)]
     fn alloc_with<T, F: FnOnce() -> T>(&'me self, f: F) -> &'a mut T {
-        self.allocate_uninit::<T>().write(f())
+        self.alloc_uninit::<T>().write(f())
     }
 
     /// Allocates space for an instance of `T`, and moves the value into the allocation.

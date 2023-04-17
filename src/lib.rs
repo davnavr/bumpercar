@@ -13,6 +13,7 @@ mod allocator;
 mod arena;
 mod bump;
 mod frame;
+mod private;
 mod raw_arena;
 
 #[cfg(feature = "sync")]
