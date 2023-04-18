@@ -89,7 +89,10 @@ impl ChunkHeader {
             debug_assert!(finger <= self.end.as_ptr());
 
             // Safety: finger is not null, since start is not null
-            Ok(unsafe { NonNull::new_unchecked(finger) })
+            let finger = unsafe { NonNull::new_unchecked(finger) };
+
+            self.finger.set(finger);
+            Ok(finger)
         } else {
             Err(OutOfMemory)
         }
@@ -352,5 +355,18 @@ impl Drop for RawArena {
 impl core::fmt::Debug for RawArena {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("RawArena").finish_non_exhaustive()
+    }
+}
+
+#[cfg(any(test, miri))]
+mod tests {
+    use super::RawArena;
+    use core::alloc::Layout;
+
+    #[test]
+    fn simple_allocate_and_free() {
+        let arena = RawArena::with_capacity(0);
+        arena.alloc_with_layout(Layout::new::<i64>());
+        core::mem::drop(arena);
     }
 }
