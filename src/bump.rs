@@ -144,6 +144,34 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
         unsafe { core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(destination) }
     }
 
+    /// Allocates space to store a slice, cloning the given `value` to fill it.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use bumpercar::prelude::*;
+    ///
+    /// let mut arena = Arena::new();
+    /// let allocator = arena.allocator();
+    /// let items = allocator.alloc_slice_fill(3usize, 42u8);
+    /// assert_eq!(items, &[42u8, 42, 42]);
+    /// ```
+    fn alloc_slice_fill<T: Clone>(&'me self, length: usize, value: T) -> &'a mut [T] {
+        let destination = self.alloc_slice_uninit::<T>(length);
+        if let Some((last, head)) = destination.split_last_mut() {
+            for item in head.iter_mut() {
+                item.write(value.clone());
+            }
+
+            last.write(value);
+
+            // Safety: [T] and [MaybeUninit<T>] have the same layout, destination is initialized
+            unsafe { core::mem::transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(destination) }
+        } else {
+            Default::default()
+        }
+    }
+
     /// Allocates a slice to contain the items yielded by the iterator.
     ///
     /// # Panics
