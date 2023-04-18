@@ -1,4 +1,21 @@
 //! Contains types for bump allocation across threads.
+//!
+//! # Example
+//!
+//! ```
+//! use bumpercar::{Bump, sync::SharedArena};
+//! use rayon::prelude::*;
+//!
+//! let arena = SharedArena::new();
+//! let my_nums = [1, 2, 3]
+//!     .into_par_iter()
+//!     .map_init(|| arena.allocator(), |allocator, i| {
+//!         allocator.alloc(i)
+//!     })
+//!     .collect::<Vec<_>>();
+//!
+//! assert_eq!(*my_nums[2], 3);
+//! ```
 
 use crate::raw_arena::RawArena;
 use std::sync::Mutex;
