@@ -53,7 +53,10 @@ impl<'a: 'f, 'f> Frame<'a, 'f> {
         // Only problem is unused memory (memory leak), which is not unsafe or UB
         let result = f(&mut frame);
 
-        // Safety: calls are nested correctly
+        // Safety: The calls are nested correctly. Note that unlike alloc_try_with_layout,
+        // &mut access to arena ensures closure cannot issue direct calls to the arena's
+        // allocation functions, so all subsequent allocations are tied to the lifetime of the
+        // Frame.
         unsafe {
             arena.restore_state(state);
         }

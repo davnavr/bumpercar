@@ -281,6 +281,8 @@ impl RawArena {
     ///
     /// # Safety
     ///
+    /// This function is **very** unsafe, and can easily cause dangling pointers.
+    ///
     /// The [`ArenaState`] passed as a parameter **must** have been returned by an earlier call
     /// from [`current_state`] for `self`.
     ///
@@ -302,8 +304,8 @@ impl RawArena {
     /// restore state A
     /// ```
     ///
-    /// `current_state`: Self::current_state
-    /// `restore_state`: Self::restore_state
+    /// [`current_state`]: Self::current_state
+    /// [`restore_state`]: Self::restore_state
     pub(crate) unsafe fn restore_state(&self, state: Option<RawArenaState>) {
         if let Some(restoring) = state {
             self.current_chunk.set(Some(restoring.chunk));
