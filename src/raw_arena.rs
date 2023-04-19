@@ -52,6 +52,8 @@ struct ChunkHeader {
     /// [`start`]: Self::start
     finger: Cell<NonNull<u8>>,
     layout: Layout,
+    ///// Counter used to keep track of the amount of free bytes in this chunk and subsequent chunks.
+    //capacity: Cell<usize>,
 }
 
 impl ChunkHeader {
@@ -72,6 +74,12 @@ impl ChunkHeader {
             NonZeroUsize::new_unchecked(self.end.as_ptr() as usize - self.start().as_ptr() as usize)
         }
     }
+
+    ///// Returns the remaining number of bytes in this chunk.
+    //#[inline(always)]
+    //pub(crate) fn size(&self) -> usize {
+    //    self.finger.get().as_ptr() as usize - self.start().as_ptr() as usize
+    //}
 
     #[inline(always)]
     fn fast_alloc_with_layout(&self, layout: Layout) -> Result<NonNull<u8>> {
@@ -102,6 +110,7 @@ impl ChunkHeader {
 fn get_next_or_allocate_chunk(
     current_chunk: &Cell<Option<NonNull<ChunkHeader>>>,
     default_capacity: Option<NonZeroUsize>,
+    allocation_request: Option<NonZeroUsize>,
 ) -> Result<NonNull<ChunkHeader>> {
     let previous_chunk = current_chunk.get();
     let previous_header = previous_chunk.map(|previous| {
@@ -122,11 +131,17 @@ fn get_next_or_allocate_chunk(
 
     // Need to allocate a new chunk
 
-    let size = previous_header
+    let mut size = previous_header
         .map(|chunk| chunk.capacity().get().checked_mul(2).unwrap_or(usize::MAX))
         .unwrap_or(default_capacity.unwrap_or(DEFAULT_CAPACITY).get())
         .checked_add(HEADER_SIZE)
         .ok_or(OutOfMemory)?;
+
+    // If an alloc request was made that is greater than capacity * 2, need to adjust size so new
+    // chunk will contain the request
+    if let Some(request_size) = allocation_request {
+        size = core::cmp::max(size, request_size.get());
+    }
 
     let rounded_size = size
         .checked_add(size % CHUNK_ALIGNMENT)
@@ -204,7 +219,7 @@ impl RawArena {
         let arena = Self::default();
 
         if let actual_capacity @ Some(_) = NonZeroUsize::new(capacity) {
-            get_next_or_allocate_chunk(&arena.current_chunk, actual_capacity).unwrap();
+            get_next_or_allocate_chunk(&arena.current_chunk, actual_capacity, None).unwrap();
         }
 
         arena
@@ -233,7 +248,7 @@ impl RawArena {
         let chunk = if let Some(chunk) = self.current_chunk.get() {
             chunk
         } else {
-            get_next_or_allocate_chunk(&self.current_chunk, None)?
+            get_next_or_allocate_chunk(&self.current_chunk, None, NonZeroUsize::new(layout.size()))?
         };
 
         // Safety: chunk is valid reference

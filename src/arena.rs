@@ -46,3 +46,15 @@ impl core::default::Default for Arena {
 
 // Safety: Safe to send across threads, borrow checker ensures there are no extant Allocators
 unsafe impl Send for Arena {}
+
+#[cfg(any(test, miri))]
+mod tests {
+    use crate::prelude::*;
+
+    #[test]
+    fn large_allocation_causes_reallocation() {
+        let mut arena = Arena::with_capacity(1024);
+        let allocator = arena.allocator();
+        allocator.alloc_slice_fill(8192, 0u8); // Bigger than the capacity of the first chunk
+    }
+}
