@@ -38,7 +38,7 @@ pub(crate) struct RawArenaState {
 #[repr(C)]
 struct ChunkHeader {
     /// Pointer to the previous chunk.
-    previous: Option<NonNull<Self>>,
+    previous: Cell<Option<NonNull<Self>>>,
     /// Pointer to the next chunk.
     next: Cell<Option<NonNull<Self>>>,
     /// Pointer to the byte after the last byte of the chunk.
@@ -108,39 +108,69 @@ impl ChunkHeader {
 }
 
 fn get_next_or_allocate_chunk(
-    current_chunk: &Cell<Option<NonNull<ChunkHeader>>>,
+    current: &Cell<Option<NonNull<ChunkHeader>>>,
     default_capacity: Option<NonZeroUsize>,
     allocation_request: Option<NonZeroUsize>,
 ) -> Result<NonNull<ChunkHeader>> {
-    let previous_chunk = current_chunk.get();
+    let previous_chunk = current.get();
     let previous_header = previous_chunk.map(|previous| {
         // Safety: previous pointer is valid.
         unsafe { previous.as_ref() }
     });
 
-    if let Some(next_chunk) = previous_header.and_then(|chunk| chunk.next.get()) {
-        // Safety: next pointer is valid
-        let next_header = unsafe { next_chunk.as_ref() };
+    let mut next_chunk = previous_header.and_then(|chunk| chunk.next.get());
+    let mut next_header = next_chunk.map(|next| {
+        // Safety: next pointer is valid.
+        unsafe { next.as_ref() }
+    });
 
-        // In cases where previous "states" are restored, a chunk may have some allocations remaining
-        // This means that the returned chunk has to be set to an empty state
-        next_header.finger.set(next_header.end);
+    let mut size: usize;
+    let old_next: Option<&ChunkHeader>;
+    if let Some(next) = next_header {
+        debug_assert_eq!(next.previous.get(), previous_chunk);
 
-        return Ok(next_chunk);
-    }
+        match allocation_request {
+            Some(request) if request < next.capacity() => {
+                // Special case, existing chunk is too small so reallocation must occur.
 
-    // Need to allocate a new chunk
+                size = HEADER_SIZE.checked_add(request.get()).ok_or(OutOfMemory)?;
 
-    let mut size = previous_header
-        .map(|chunk| chunk.capacity().get().checked_mul(2).unwrap_or(usize::MAX))
-        .unwrap_or(default_capacity.unwrap_or(DEFAULT_CAPACITY).get())
-        .checked_add(HEADER_SIZE)
-        .ok_or(OutOfMemory)?;
+                // Go to normal allocation path
+                old_next = next.next.get().map(|next| {
+                    // Safety: next pointer is valid
+                    unsafe { next.as_ref() }
+                });
+            }
+            _ => {
+                // In cases where previous "states" are restored, a chunk may have some allocations remaining
+                // This means that the returned chunk has to be set to an empty state
+                next.finger.set(next.end);
 
-    // If an alloc request was made that is greater than capacity * 2, need to adjust size so new
-    // chunk will contain the request
-    if let Some(request_size) = allocation_request {
-        size = core::cmp::max(size, request_size.get());
+                current.set(next_chunk);
+                return Ok(NonNull::from(next));
+            }
+        }
+    } else {
+        // Need to allocate a new chunk
+
+        size = previous_header
+            .map(|chunk| chunk.capacity().get().checked_mul(2).unwrap_or(usize::MAX))
+            .unwrap_or(default_capacity.unwrap_or(DEFAULT_CAPACITY).get())
+            .checked_add(HEADER_SIZE)
+            .ok_or(OutOfMemory)?;
+
+        // If an alloc request was made that is greater than capacity * 2, need to adjust size so new
+        // chunk will contain the request
+        if let Some(request_size) = allocation_request {
+            let content_size = size - HEADER_SIZE; // Does not underflow, >= HEADER_SIZE
+            if content_size < request_size.get() {
+                size = size
+                    .checked_add(request_size.get() - content_size)
+                    .ok_or(OutOfMemory)?;
+            }
+        }
+
+        old_next = None;
     }
 
     let rounded_size = size
@@ -155,7 +185,24 @@ fn get_next_or_allocate_chunk(
 
         // Safety: layout size is never 0
         unsafe {
-            pointer = alloc::alloc(layout);
+            // TODO: Choose whether to alloc or realloc
+            if let Some(next) = next_header {
+                pointer = alloc::realloc(
+                    next as *const ChunkHeader as *mut u8,
+                    next.layout,
+                    layout.size(),
+                );
+
+                // Prevents accidental further usage of dangling next pointer
+                #[allow(unused_assignments)]
+                {
+                    next_header = None;
+                    next_chunk = None;
+                }
+            } else {
+                pointer = alloc::alloc(layout);
+            }
+
             end = NonNull::new(pointer.add(rounded_size)).ok_or(OutOfMemory)?;
         }
 
@@ -170,20 +217,25 @@ fn get_next_or_allocate_chunk(
         }
 
         NonNull::from(header.write(ChunkHeader {
-            previous: previous_chunk,
-            next: Cell::new(None),
+            previous: Cell::new(previous_chunk),
+            next: Cell::new(old_next.map(NonNull::from)),
             end,
             finger: Cell::new(end),
             layout,
         }))
     };
 
-    if let Some(previous_chunk) = previous_header {
-        debug_assert!(previous_chunk.next.get().is_none());
-        previous_chunk.next.set(Some(chunk));
+    if let Some(previous) = previous_header {
+        debug_assert!(previous.next.get().is_none());
+        previous.next.set(Some(chunk));
     }
 
-    current_chunk.set(Some(chunk));
+    if let Some(old_header) = old_next {
+        // Path only taken if a chunk was "reallocated" to fit a large allocation, need to fix a dangling pointer
+        old_header.previous.set(Some(chunk));
+    }
+
+    current.set(Some(chunk));
     Ok(chunk)
 }
 
@@ -197,7 +249,7 @@ impl<'a> Iterator for Chunks<'a> {
     fn next(&mut self) -> Option<&'a ChunkHeader> {
         let previous = self.current;
         self.current = self.current.and_then(|header| {
-            header.previous.map(|previous| {
+            header.previous.get().map(|previous| {
                 // Safety: valid for lifetime 'a
                 unsafe { previous.as_ref() }
             })
@@ -245,11 +297,11 @@ impl RawArena {
 
     #[inline(never)]
     fn slow_alloc_with_layout(&self, layout: Layout) -> Result<NonNull<u8>> {
-        let chunk = if let Some(chunk) = self.current_chunk.get() {
-            chunk
-        } else {
-            get_next_or_allocate_chunk(&self.current_chunk, None, NonZeroUsize::new(layout.size()))?
-        };
+        let chunk = get_next_or_allocate_chunk(
+            &self.current_chunk,
+            None,
+            NonZeroUsize::new(layout.size()),
+        )?;
 
         // Safety: chunk is valid reference
         unsafe { chunk.as_ref() }.fast_alloc_with_layout(layout)
