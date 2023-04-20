@@ -6,4 +6,8 @@ Inspired by [`bumpalo`](https://crates.io/crates/bumpalo), but provides addition
 for deallocation and usage in multiple threads.
 
 Compatible with `#![no_std]`, depending only on [`alloc`](https://doc.rust-lang.org/alloc/) and
-[`core`](https://doc.rust-lang.org/core/index.html)
+[`core`](https://doc.rust-lang.org/core/index.html).
+
+## Features
+
+- `sync`: Provides the [`sync`] module, allowing for arena allocation between threads.
