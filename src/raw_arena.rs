@@ -25,6 +25,12 @@ impl core::fmt::Display for OutOfMemory {
     }
 }
 
+impl From<core::alloc::LayoutError> for OutOfMemory {
+    fn from(_: core::alloc::LayoutError) -> Self {
+        Self
+    }
+}
+
 type Result<T> = core::result::Result<T, OutOfMemory>;
 
 enum ReallocKind {
@@ -119,22 +125,56 @@ impl ChunkHeader {
     ) -> Result<(NonNull<u8>, ReallocKind)> {
         let mut finger = self.finger.get().as_ptr();
 
+        // In these cases, alloc should be used instead
         if finger != pointer.as_ptr() || layout.size() == 0 {
             return Err(OutOfMemory);
         }
 
         debug_assert!(
             finger as usize % layout.align() == 0,
-            "allocation is aligned"
+            "original allocation was aligned"
         );
 
-        // new_size == 0 is handled correctly
+        let start = self.start();
 
-        // if shrinking, still need to move
+        let aligned_layout = layout.pad_to_align();
+        let new_layout = Layout::from_size_align(new_size, layout.align())?.pad_to_align();
 
-        // A "shrink" should occur if new_size == (rounded size) of layout
+        // Adjust finger to make/reduce space for object
+        let kind: ReallocKind;
+        let amount;
+        if aligned_layout.size() >= new_layout.size() {
+            kind = ReallocKind::Shrink;
+            amount = aligned_layout.size() - new_layout.size();
+            finger = finger.wrapping_add(amount);
+            debug_assert!(finger >= start.as_ptr());
+        } else {
+            // aligned_layout.size() < new_layout.size()
+            kind = ReallocKind::Grow;
+            amount = new_layout.size() - aligned_layout.size();
+            finger = finger.wrapping_sub(amount);
 
-        todo!()
+            // Only failure state here is if chunk does not have space for new size
+            if finger < start.as_ptr() {
+                return Err(OutOfMemory);
+            }
+        }
+
+        let allocation = NonNull::new(finger).ok_or(OutOfMemory)?;
+        debug_assert!(allocation <= self.end);
+
+        // Common code, a move still needs to occur whether a shrink or grow occured.
+        // Note that if new_size == 0, then a "free" basically occured, which is still handled here
+        if amount >= new_size {
+            // Safety: If shrinking/growing by amount, then ranges are not overlapping
+            unsafe { core::ptr::copy_nonoverlapping(pointer.as_ptr(), finger, new_size) }
+        } else {
+            // Safety: proper alignment & sizes
+            unsafe { core::ptr::copy(pointer.as_ptr(), finger, new_size) }
+        }
+
+        self.finger.set(allocation);
+        Ok((allocation, kind))
     }
 }
 
@@ -208,7 +248,7 @@ fn get_next_or_allocate_chunk(
         .checked_add(size % CHUNK_ALIGNMENT)
         .ok_or(OutOfMemory)?;
 
-    let layout = Layout::from_size_align(rounded_size, CHUNK_ALIGNMENT).map_err(|_| OutOfMemory)?;
+    let layout = Layout::from_size_align(rounded_size, CHUNK_ALIGNMENT)?;
 
     let chunk = {
         let pointer;

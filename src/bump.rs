@@ -53,7 +53,8 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     ///
     /// If a shrink occurs, a second pointer is always returned.
     ///
-    /// If the new size is same as the current size of the object, then no allocation occurs.
+    /// If the new size is same as the current size of the object after taking into account
+    /// alignment, then no allocation or shrinking occurs.
     ///
     /// # Safety
     ///
