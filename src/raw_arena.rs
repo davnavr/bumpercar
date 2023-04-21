@@ -160,6 +160,9 @@ impl ChunkHeader {
             }
         }
 
+        // finger should remain aligned, since sizes are rounded/padded
+        debug_assert_eq!(finger as usize % layout.align(), 0);
+
         let allocation = NonNull::new(finger).ok_or(OutOfMemory)?;
         debug_assert!(allocation <= self.end);
 
@@ -542,11 +545,63 @@ impl core::fmt::Debug for RawArena {
 mod tests {
     use super::RawArena;
     use core::alloc::Layout;
+    use core::ptr::NonNull;
 
     #[test]
     fn simple_allocate_and_free() {
         let arena = RawArena::with_capacity(0);
         arena.alloc_with_layout(Layout::new::<i64>());
         core::mem::drop(arena);
+    }
+
+    #[test]
+    fn realloc() {
+        let arena = RawArena::with_capacity(0);
+
+        // Safety: test
+        unsafe {
+            let layout_1 = Layout::new::<[i32; 4]>();
+            let pointer_1 = arena
+                .alloc_with_layout(layout_1)
+                .cast::<[i32; 4]>()
+                .as_ptr();
+
+            let items_1 = [0, 2, 4, 6];
+            *pointer_1 = items_1;
+
+            // Grow, in place
+            let layout_2 = Layout::new::<[i32; 6]>();
+            let (pointer_2, previous_1) = arena.realloc(
+                NonNull::new_unchecked(pointer_1).cast(),
+                layout_1,
+                layout_2.size(),
+            );
+
+            let pointer_2 = pointer_2.cast::<[i32; 4]>();
+
+            assert!(previous_1.is_none());
+            assert_eq!(core::ptr::read(pointer_2.as_ptr()), items_1);
+
+            let array_2 = pointer_2.cast::<[i32; 6]>().as_mut();
+            array_2[4] = 8;
+            array_2[5] = 10;
+
+            // Fragmentation
+            let disruption = arena.alloc_with_layout(layout_1);
+            assert_ne!(NonNull::from(array_2).cast(), disruption);
+
+            // Grow, requires new allocation in same chunk
+            let layout_3 = Layout::new::<[i32; 7]>();
+            let (pointer_3, previous_2) = arena.realloc(
+                NonNull::new_unchecked(pointer_1).cast(),
+                layout_2,
+                layout_3.size(),
+            );
+
+            assert_eq!(previous_2, Some(pointer_2.cast()));
+            assert_eq!(core::ptr::read(pointer_3.cast::<[i32; 6]>().as_ptr()), [0, 2, 4, 6, 8, 10]);
+
+            // TODO: Add shrink checks
+        }
     }
 }

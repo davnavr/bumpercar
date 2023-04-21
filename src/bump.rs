@@ -46,7 +46,7 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     /// Attempts to shrink or grow an allocated object. Returns a pointer to the re-allocated
     /// object, and an additional pointer to freed memory that can be reused. After the call,
     /// **the original pointer will most likely be invalid**, refer to the
-    /// [safety documentation](Bump::realloc#Safety) for more information.
+    /// [safety documentation](#safety) for more information.
     ///
     /// If reallocation cannot occur in the current chunk, a new allocation is made in a new chunk, and
     /// the now freed memory is returned as the second pointer.
