@@ -27,6 +27,11 @@ impl core::fmt::Display for OutOfMemory {
 
 type Result<T> = core::result::Result<T, OutOfMemory>;
 
+enum ReallocKind {
+    Shrink,
+    Grow,
+}
+
 /// Allows for quick deallocation of a portion of a [`RawArena`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RawArenaState {
@@ -104,6 +109,32 @@ impl ChunkHeader {
         } else {
             Err(OutOfMemory)
         }
+    }
+
+    unsafe fn fast_realloc(
+        &self,
+        pointer: NonNull<u8>,
+        layout: Layout,
+        new_size: usize,
+    ) -> Result<(NonNull<u8>, ReallocKind)> {
+        let mut finger = self.finger.get().as_ptr();
+
+        if finger != pointer.as_ptr() || layout.size() == 0 {
+            return Err(OutOfMemory);
+        }
+
+        debug_assert!(
+            finger as usize % layout.align() == 0,
+            "allocation is aligned"
+        );
+
+        // new_size == 0 is handled correctly
+
+        // if shrinking, still need to move
+
+        // A "shrink" should occur if new_size == (rounded size) of layout
+
+        todo!()
     }
 }
 
@@ -305,6 +336,46 @@ impl RawArena {
 
         // Safety: chunk is valid reference
         unsafe { chunk.as_ref() }.fast_alloc_with_layout(layout)
+    }
+
+    pub(crate) unsafe fn realloc(
+        &self,
+        pointer: NonNull<u8>,
+        layout: Layout,
+        new_size: usize,
+    ) -> (NonNull<u8>, Option<NonNull<u8>>) {
+        // Safety: ensured by caller
+        let fast = unsafe { self.realloc_fast(pointer, layout, new_size) };
+        match fast {
+            Ok((adjusted, ReallocKind::Shrink)) => (adjusted, Some(pointer)),
+            Ok((adjusted, ReallocKind::Grow)) => (adjusted, None),
+            Err(_) => {
+                // Safety: ensured by caller
+                let slow = unsafe { self.realloc_slow(new_size, layout.align()) };
+                (slow, Some(pointer))
+            }
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn realloc_fast(
+        &self,
+        pointer: NonNull<u8>,
+        layout: Layout,
+        new_size: usize,
+    ) -> Result<(NonNull<u8>, ReallocKind)> {
+        if let Some(chunk) = self.current_chunk.get() {
+            // Safety: chunk is valid reference
+            // Safety: caller ensures realloc safety
+            unsafe { chunk.as_ref().fast_realloc(pointer, layout, new_size) }
+        } else {
+            Err(OutOfMemory)
+        }
+    }
+
+    #[inline(never)]
+    unsafe fn realloc_slow(&self, new_size: usize, old_alignment: usize) -> NonNull<u8> {
+        self.alloc_with_layout(Layout::from_size_align(new_size, old_alignment).unwrap())
     }
 
     pub(crate) unsafe fn alloc_try_with_layout<R, F>(&self, layout: Layout, f: F) -> R

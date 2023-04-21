@@ -18,6 +18,8 @@
 //! ```
 
 use crate::raw_arena::RawArena;
+use std::alloc::Layout;
+use std::ptr::NonNull;
 use std::sync::Mutex;
 
 /// A collection of [`Arena`](crate::Arena) instances shared between threads.
@@ -36,8 +38,19 @@ pub struct ThreadAllocator<'a> {
 // Safety: SharedArena lives for 'a, contains all arenas, and outlives 'me
 unsafe impl<'me, 'a: 'me> crate::Bump<'me, 'a> for ThreadAllocator<'a> {
     #[inline(always)]
-    fn alloc_with_layout(&'me self, layout: core::alloc::Layout) -> core::ptr::NonNull<u8> {
+    fn alloc_with_layout(&'me self, layout: Layout) -> NonNull<u8> {
         self.arena.alloc_with_layout(layout)
+    }
+
+    #[inline(always)]
+    unsafe fn realloc(
+        &'me self,
+        pointer: NonNull<u8>,
+        old_layout: Layout,
+        new_size: usize,
+    ) -> (NonNull<u8>, Option<NonNull<u8>>) {
+        // Safety: ensured by caller
+        unsafe { self.arena.realloc(pointer, old_layout, new_size) }
     }
 
     #[inline(always)]
@@ -46,10 +59,10 @@ unsafe impl<'me, 'a: 'me> crate::Bump<'me, 'a> for ThreadAllocator<'a> {
     }
 
     #[inline(always)]
-    unsafe fn alloc_try_with_layout<R, F>(&'me self, layout: core::alloc::Layout, f: F) -> R
+    unsafe fn alloc_try_with_layout<R, F>(&'me self, layout: Layout, f: F) -> R
     where
         R: crate::private::Try,
-        F: FnOnce(core::ptr::NonNull<u8>) -> R,
+        F: FnOnce(NonNull<u8>) -> R,
     {
         // Safety: ensured by caller
         unsafe { self.arena.alloc_try_with_layout(layout, f) }

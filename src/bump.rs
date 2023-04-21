@@ -20,6 +20,8 @@ mod private {
 /// # Safety
 ///
 /// Implementations must ensure that all allocations are valid for the lifetime `'a`.
+/// The sole exception to this are objects passed to [`realloc`]. See the documentation for
+/// [`realloc`] for more information.
 ///
 /// Any pointers (such as those originating from [`alloc_with_layout`](Bump::alloc_with_layout))
 /// returned as a result of allocation requests must be
@@ -27,6 +29,8 @@ mod private {
 ///
 /// Additionally, requests to allocate zero-sized values must yield a pointer that can be
 /// transmuted into a valid mutable reference.
+///
+/// [`realloc`]: Bump::realloc
 pub unsafe trait Bump<'me, 'a>: private::Sealed {
     /// Calls a closure with a [`Frame`](crate::Frame) used to tie the lifetime of allocations made
     /// into an arena to a stack frame.
@@ -38,6 +42,46 @@ pub unsafe trait Bump<'me, 'a>: private::Sealed {
     ///
     /// Panics if any calls to an underlying memory allocator fail.
     fn alloc_with_layout(&'me self, layout: Layout) -> NonNull<u8>;
+
+    /// Attempts to shrink or grow an allocated object. Returns a pointer to the re-allocated
+    /// object, and an additional pointer to freed memory that can be reused. After the call,
+    /// **the original pointer will most likely be invalid**, refer to the
+    /// [safety documentation](Bump::realloc#Safety) for more information.
+    ///
+    /// If reallocation cannot occur in the current chunk, a new allocation is made in a new chunk, and
+    /// the now freed memory is returned as the second pointer.
+    ///
+    /// If a shrink occurs, a second pointer is always returned.
+    ///
+    /// If the new size is same as the current size of the object, then no allocation occurs.
+    ///
+    /// # Safety
+    ///
+    /// This function is **very** unsafe, as it can easily cause use-after-free bugs. Callers must
+    /// ensure that the pointer was obtained by allocating into the **same arena**.
+    ///
+    /// If a second pointer to reusable memory is returned, callers **must** re-initialize the
+    /// memory if they wish to reuse it, as the pointed-to memory would be logically uninitialized
+    /// after the call to [`realloc`].
+    ///
+    /// After the call to [`realloc`], the `pointer` parameter will **only** be valid if no
+    /// reallocation occured. The returned pointer now refers to the re-allocated object.
+    ///
+    /// Despite the fact that reallocation may result in an object being move, callers must still
+    /// ensure that all objects do not outlive the arena lifetime `'a`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if allocation was required, and failed.
+    /// See [`alloc_with_layout`](Bump::alloc_with_layout) for more information.
+    ///
+    /// [`realloc`]: Bump::realloc
+    unsafe fn realloc(
+        &'me self,
+        pointer: NonNull<u8>,
+        old_layout: Layout,
+        new_size: usize,
+    ) -> (NonNull<u8>, Option<NonNull<u8>>);
 
     /// Allocates space for an object with the given [`Layout`], and passes the pointer to a
     /// closure that returns a [`Result<T>`] or [`Option<T>`].
