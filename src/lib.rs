@@ -17,6 +17,8 @@ mod private;
 mod raw_arena;
 
 pub mod boxed;
+#[cfg(feature = "vec")]
+pub mod vec;
 #[cfg(feature = "sync")]
 pub mod sync;
 
