@@ -37,6 +37,7 @@ use core::ops::DerefMut;
 ///
 /// See the [module level documentation](crate::boxed) for more information.
 #[derive(Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(transparent)]
 pub struct Box<'b, T: ?Sized> {
     value: &'b mut T,
 }
