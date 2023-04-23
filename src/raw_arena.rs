@@ -16,8 +16,7 @@ const DEFAULT_CAPACITY: NonZeroUsize = {
 // Uses a "downward bumping allocator", see https://fitzgeraldnick.com/2019/11/01/always-bump-downwards.html
 
 #[derive(Debug)]
-#[non_exhaustive]
-struct OutOfMemory;
+pub(crate) struct OutOfMemory;
 
 impl core::fmt::Display for OutOfMemory {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -599,7 +598,10 @@ mod tests {
             );
 
             assert_eq!(previous_2, Some(pointer_2.cast()));
-            assert_eq!(core::ptr::read(pointer_3.cast::<[i32; 6]>().as_ptr()), [0, 2, 4, 6, 8, 10]);
+            assert_eq!(
+                core::ptr::read(pointer_3.cast::<[i32; 6]>().as_ptr()),
+                [0, 2, 4, 6, 8, 10]
+            );
 
             // TODO: Add shrink checks
         }

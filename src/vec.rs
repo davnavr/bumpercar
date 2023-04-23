@@ -6,6 +6,8 @@ use crate::Bump;
 use core::alloc::Layout;
 use core::ptr::NonNull;
 
+mod partial_eq;
+
 /// A contiguous, growable array type that is allocated into an [`Arena`](crate::Arena).
 ///
 /// A best effort is made to provide the same methods as [`Vec<T>`](alloc::vec::Vec<T>) in the
@@ -21,12 +23,12 @@ use core::ptr::NonNull;
 /// let allocator = arena.allocator();
 ///
 /// let mut vec = Vec::new_in(&allocator);
-/// vec.push('a');
-/// vec.push('b');
-/// vec.push('c');
+/// vec.push(b'a');
+/// vec.push(b'b');
+/// vec.push(b'c');
 ///
 /// assert_eq!(vec.len(), 3);
-/// assert_eq!(&b"abc", vec);
+/// assert_eq!(b"abc", vec.as_slice());
 /// ```
 pub struct Vec<'alloc, 'arena, T, A = crate::Allocator<'arena>>
 where
@@ -230,6 +232,13 @@ where
     fn drop(&mut self) {
         self.clear();
     }
+}
+
+impl<'alloc, 'arena, T, A> core::cmp::Eq for Vec<'alloc, 'arena, T, A>
+where
+    A: Bump<'alloc, 'arena>,
+    T: core::cmp::Eq,
+{
 }
 
 impl<'alloc, 'arena, T, A> core::fmt::Debug for Vec<'alloc, 'arena, T, A>
