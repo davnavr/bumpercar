@@ -26,6 +26,7 @@ use core::ptr::NonNull;
 /// vec.push('c');
 ///
 /// assert_eq!(vec.len(), 3);
+/// assert_eq!(&b"abc", vec);
 /// ```
 pub struct Vec<'alloc, 'arena, T, A = crate::Allocator<'arena>>
 where
@@ -54,7 +55,7 @@ where
 
     /// Creates an empty vector that will allocate memory with the given [`Bump`] allocator.
     #[inline]
-    pub fn new_in(&self, allocator: &'alloc A) -> Self {
+    pub fn new_in(allocator: &'alloc A) -> Self {
         Self {
             pointer: NonNull::dangling(),
             capacity: 0,
