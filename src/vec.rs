@@ -10,6 +10,23 @@ use core::ptr::NonNull;
 ///
 /// A best effort is made to provide the same methods as [`Vec<T>`](alloc::vec::Vec<T>) in the
 /// standard library.
+///
+/// # Examples
+///
+/// ```
+/// use bumpercar::prelude::*;
+/// use bumpercar::vec::Vec;
+///
+/// let mut arena = Arena::new();
+/// let allocator = arena.allocator();
+///
+/// let mut vec = Vec::new_in(&allocator);
+/// vec.push('a');
+/// vec.push('b');
+/// vec.push('c');
+///
+/// assert_eq!(vec.len(), 3);
+/// ```
 pub struct Vec<'alloc, 'arena, T, A = crate::Allocator<'arena>>
 where
     A: Bump<'alloc, 'arena>,
@@ -27,6 +44,8 @@ impl<'alloc, 'arena, T, A> Vec<'alloc, 'arena, T, A>
 where
     A: Bump<'alloc, 'arena>,
 {
+    const ELEMENT_SIZE: usize = core::mem::size_of::<T>();
+
     /// Gets the allocator used to contain the vector's elements.
     #[inline]
     pub fn allocator(&self) -> &'alloc A {
@@ -111,19 +130,27 @@ where
 
     #[inline]
     fn try_reserve_exact(&mut self, additional: usize) -> Result<(), OutOfMemory> {
-        if self.capacity - self.length >= additional {
+        if self.capacity - self.length >= additional || Self::ELEMENT_SIZE == 0 {
             return Ok(());
         }
 
         // This won't overflow, capacity uses checked_add later
-        let current_size = core::mem::size_of::<T>() * self.capacity;
+        let current_size = Self::ELEMENT_SIZE
+            .checked_mul(self.capacity)
+            .ok_or(OutOfMemory)?;
 
         // Safety: no dangling pointers
         let (new_pointer, _) = unsafe {
             self.allocator.realloc(
                 self.pointer.cast(),
                 Layout::from_size_align(current_size, core::mem::align_of::<T>())?,
-                current_size.checked_add(additional).ok_or(OutOfMemory)?,
+                current_size
+                    .checked_add(
+                        Self::ELEMENT_SIZE
+                            .checked_mul(additional)
+                            .ok_or(OutOfMemory)?,
+                    )
+                    .ok_or(OutOfMemory)?,
             )
         };
 
@@ -140,7 +167,7 @@ where
     #[inline]
     pub fn push(&mut self, value: T) {
         if self.length == self.capacity {
-            self.reserve_exact(self.length);
+            self.reserve_exact(core::cmp::max(self.length, 1)); // TODO: Growth should be 0, 4, 8, ...
         }
 
         // Safety: pointer is valid, since capacity check occurs above
