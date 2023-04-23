@@ -10,4 +10,5 @@ Compatible with `#![no_std]`, depending only on [`alloc`](https://doc.rust-lang.
 
 ## Features
 
-- `sync`: Provides the [`sync`] module, allowing for arena allocation between threads.
+- `sync`: Provides the `sync` module, allowing for arena allocation between threads.
+- `vec`: Provides the `vec` module, which is a port of [`Vec<T>`] that backed by arena allocation.

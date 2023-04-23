@@ -17,10 +17,10 @@ mod private;
 mod raw_arena;
 
 pub mod boxed;
-#[cfg(feature = "vec")]
-pub mod vec;
 #[cfg(feature = "sync")]
 pub mod sync;
+#[cfg(feature = "vec")]
+pub mod vec;
 
 pub use allocator::Allocator;
 pub use arena::Arena;
