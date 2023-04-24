@@ -6,7 +6,10 @@ use crate::Bump;
 use core::alloc::Layout;
 use core::ptr::NonNull;
 
+mod into_iter;
 mod partial_eq;
+
+pub use into_iter::IntoIter;
 
 /// A contiguous, growable array type that is allocated into an [`Arena`](crate::Arena).
 ///
@@ -231,6 +234,7 @@ where
 {
     fn drop(&mut self) {
         self.clear();
+        // TODO: Call realloc
     }
 }
 
@@ -274,6 +278,20 @@ where
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.as_mut_slice().iter_mut()
+    }
+}
+
+impl<'alloc, 'arena, T, A> core::iter::IntoIterator for Vec<'alloc, 'arena, T, A>
+where
+    A: Bump<'alloc, 'arena>,
+{
+    type Item = T;
+    type IntoIter = IntoIter<'alloc, T, A>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        // Safety: conditions are invariants upheld by all methods
+        unsafe { IntoIter::new(self.pointer, self.length, self.capacity, self.allocator) }
     }
 }
 
