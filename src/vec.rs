@@ -258,6 +258,7 @@ where
     type Item = &'t T;
     type IntoIter = core::slice::Iter<'t, T>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.as_slice().iter()
     }
@@ -270,7 +271,32 @@ where
     type Item = &'t mut T;
     type IntoIter = core::slice::IterMut<'t, T>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.as_mut_slice().iter_mut()
+    }
+}
+
+impl<'alloc, 'arena, T, I, A> core::ops::Index<I> for Vec<'alloc, 'arena, T, A>
+where
+    A: Bump<'alloc, 'arena>,
+    I: core::slice::SliceIndex<[T]>,
+{
+    type Output = <I as core::slice::SliceIndex<[T]>>::Output;
+
+    #[inline]
+    fn index(&self, index: I) -> &Self::Output {
+        &self.as_slice()[index]
+    }
+}
+
+impl<'alloc, 'arena, T, I, A> core::ops::IndexMut<I> for Vec<'alloc, 'arena, T, A>
+where
+    A: Bump<'alloc, 'arena>,
+    I: core::slice::SliceIndex<[T]>,
+{
+    #[inline]
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        &mut self.as_mut_slice()[index]
     }
 }
