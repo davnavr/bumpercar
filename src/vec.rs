@@ -250,3 +250,27 @@ where
         core::fmt::Debug::fmt(self.as_slice(), f)
     }
 }
+
+impl<'t, 'alloc, 'arena, T, A> core::iter::IntoIterator for &'t Vec<'alloc, 'arena, T, A>
+where
+    A: Bump<'alloc, 'arena>,
+{
+    type Item = &'t T;
+    type IntoIter = core::slice::Iter<'t, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_slice().iter()
+    }
+}
+
+impl<'t, 'alloc, 'arena, T, A> core::iter::IntoIterator for &'t mut Vec<'alloc, 'arena, T, A>
+where
+    A: Bump<'alloc, 'arena>,
+{
+    type Item = &'t mut T;
+    type IntoIter = core::slice::IterMut<'t, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_mut_slice().iter_mut()
+    }
+}
