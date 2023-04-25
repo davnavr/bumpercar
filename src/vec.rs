@@ -33,20 +33,16 @@ pub use into_iter::IntoIter;
 /// assert_eq!(vec.len(), 3);
 /// assert_eq!(b"abc", vec.as_slice());
 /// ```
-pub struct Vec<'alloc, 'arena, T, A = crate::Allocator<'arena>>
-where
-    A: Bump<'alloc, 'arena>,
-{
+pub struct Vec<'alloc, T, A> {
     pointer: NonNull<T>,
     /// The maximum number of items that this vector can contain. Must always be greater than or
     /// equal to [`length`](Vec::length).
     capacity: usize,
     length: usize,
     allocator: &'alloc A,
-    _phantom: core::marker::PhantomData<&'arena T>,
 }
 
-impl<'alloc, 'arena, T, A> Vec<'alloc, 'arena, T, A>
+impl<'alloc, 'arena, T, A> Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
 {
@@ -66,7 +62,6 @@ where
             capacity: 0,
             length: 0,
             allocator,
-            _phantom: core::marker::PhantomData,
         }
     }
 
@@ -204,7 +199,7 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, A> core::ops::Deref for Vec<'alloc, 'arena, T, A>
+impl<'alloc, 'arena, T, A> core::ops::Deref for Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
 {
@@ -217,7 +212,7 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, A> core::ops::DerefMut for Vec<'alloc, 'arena, T, A>
+impl<'alloc, 'arena, T, A> core::ops::DerefMut for Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
 {
@@ -228,7 +223,7 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, A> core::ops::Drop for Vec<'alloc, 'arena, T, A>
+impl<'alloc, 'arena, T, A> core::ops::Drop for Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
 {
@@ -238,14 +233,14 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, A> core::cmp::Eq for Vec<'alloc, 'arena, T, A>
+impl<'alloc, 'arena, T, A> core::cmp::Eq for Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
     T: core::cmp::Eq,
 {
 }
 
-impl<'alloc, 'arena, T, A> core::fmt::Debug for Vec<'alloc, 'arena, T, A>
+impl<'alloc, 'arena, T, A> core::fmt::Debug for Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
     T: core::fmt::Debug,
@@ -255,7 +250,7 @@ where
     }
 }
 
-impl<'t, 'alloc, 'arena, T, A> core::iter::IntoIterator for &'t Vec<'alloc, 'arena, T, A>
+impl<'t, 'alloc, 'arena, T, A> core::iter::IntoIterator for &'t Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
 {
@@ -268,7 +263,7 @@ where
     }
 }
 
-impl<'t, 'alloc, 'arena, T, A> core::iter::IntoIterator for &'t mut Vec<'alloc, 'arena, T, A>
+impl<'t, 'alloc, 'arena, T, A> core::iter::IntoIterator for &'t mut Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
 {
@@ -281,7 +276,7 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, A> core::iter::IntoIterator for Vec<'alloc, 'arena, T, A>
+impl<'alloc, 'arena, T, A> core::iter::IntoIterator for Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
 {
@@ -295,7 +290,7 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, I, A> core::ops::Index<I> for Vec<'alloc, 'arena, T, A>
+impl<'alloc, 'arena, T, I, A> core::ops::Index<I> for Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
     I: core::slice::SliceIndex<[T]>,
@@ -308,7 +303,7 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, I, A> core::ops::IndexMut<I> for Vec<'alloc, 'arena, T, A>
+impl<'alloc, 'arena, T, I, A> core::ops::IndexMut<I> for Vec<'alloc, T, A>
 where
     A: Bump<'alloc, 'arena>,
     I: core::slice::SliceIndex<[T]>,
