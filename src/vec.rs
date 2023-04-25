@@ -131,24 +131,14 @@ where
             return Ok(());
         }
 
-        // This won't overflow, capacity uses checked_add later
-        let current_size = Self::ELEMENT_SIZE
-            .checked_mul(self.capacity)
-            .ok_or(OutOfMemory)?;
+        let new_capacity = self.capacity.checked_add(additional).ok_or(OutOfMemory)?;
 
         // Safety: no dangling pointers
-        // TODO: Use Layout::array
         let (new_pointer, _) = unsafe {
             self.allocator.realloc(
                 self.pointer.cast(),
-                Layout::from_size_align(current_size, core::mem::align_of::<T>())?,
-                current_size
-                    .checked_add(
-                        Self::ELEMENT_SIZE
-                            .checked_mul(additional)
-                            .ok_or(OutOfMemory)?,
-                    )
-                    .ok_or(OutOfMemory)?,
+                Layout::array::<T>(self.capacity)?,
+                Layout::array::<T>(new_capacity)?.size(),
             )
         };
 
