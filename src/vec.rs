@@ -33,18 +33,22 @@ pub use into_iter::IntoIter;
 /// assert_eq!(vec.len(), 3);
 /// assert_eq!(b"abc", vec.as_slice());
 /// ```
-pub struct Vec<'alloc, T, A> {
+pub struct Vec<'alloc, T, A>
+where
+    A: for<'arena> Bump<'alloc, 'arena>,
+{
     pointer: NonNull<T>,
     /// The maximum number of items that this vector can contain. Must always be greater than or
     /// equal to [`length`](Vec::length).
     capacity: usize,
     length: usize,
     allocator: &'alloc A,
+    _marker: core::marker::PhantomData<T>,
 }
 
-impl<'alloc, 'arena, T, A> Vec<'alloc, T, A>
+impl<'alloc, T, A> Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
 {
     const ELEMENT_SIZE: usize = core::mem::size_of::<T>();
 
@@ -62,6 +66,7 @@ where
             capacity: 0,
             length: 0,
             allocator,
+            _marker: core::marker::PhantomData,
         }
     }
 
@@ -107,25 +112,16 @@ where
         self
     }
 
-    /// Consumes and leaks the [`Vec<T>`].
-    ///
-    /// Note that this will prevent any destructors for `T` from being run.
-    #[inline]
-    pub fn leak(mut self) -> &'arena mut [T] {
-        // Safety: slice was allocated in the arena, so returned reference will live as long as the arena
-        unsafe { core::slice::from_raw_parts_mut(self.as_mut_ptr(), self.length) }
-    }
-
     /// Removes all values from the vector.
     #[inline]
     pub fn clear(&mut self) {
-        let elements = NonNull::from(self.as_mut_slice());
+        let elements: *mut [T] = self.as_mut_slice();
 
         self.length = 0;
 
         // Safety: elements contains valid values
         unsafe {
-            core::ptr::drop_in_place(elements.as_ptr());
+            core::ptr::drop_in_place(elements);
         }
     }
 
@@ -141,6 +137,7 @@ where
             .ok_or(OutOfMemory)?;
 
         // Safety: no dangling pointers
+        // TODO: Use Layout::array
         let (new_pointer, _) = unsafe {
             self.allocator.realloc(
                 self.pointer.cast(),
@@ -199,9 +196,25 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, A> core::ops::Deref for Vec<'alloc, T, A>
+/*
+impl<'alloc, T, A> Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
+{
+    /// Consumes and leaks the [`Vec<T>`].
+    ///
+    /// Note that this will prevent any destructors for `T` from being run.
+    #[inline]
+    pub fn leak(mut self) -> &'arena mut T {
+        // Safety: slice was allocated in the arena, so returned reference will live as long as the arena
+        unsafe { core::slice::from_raw_parts_mut(self.as_mut_ptr(), self.length) }
+    }
+}
+*/
+
+impl<'alloc, T, A> core::ops::Deref for Vec<'alloc, T, A>
+where
+    A: for<'arena> Bump<'alloc, 'arena>,
 {
     type Target = [T];
 
@@ -212,9 +225,9 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, A> core::ops::DerefMut for Vec<'alloc, T, A>
+impl<'alloc, T, A> core::ops::DerefMut for Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
 {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
@@ -223,26 +236,33 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, A> core::ops::Drop for Vec<'alloc, T, A>
+impl<'alloc, T, A> core::ops::Drop for Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
 {
     fn drop(&mut self) {
-        self.clear();
-        // TODO: Call realloc
+        let moved = Self {
+            pointer: self.pointer,
+            capacity: self.capacity,
+            length: self.length,
+            allocator: self.allocator,
+            _marker: core::marker::PhantomData,
+        };
+
+        let _: IntoIter<'alloc, T, A> = moved.into_iter();
     }
 }
 
-impl<'alloc, 'arena, T, A> core::cmp::Eq for Vec<'alloc, T, A>
+impl<'alloc, T, A> core::cmp::Eq for Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
     T: core::cmp::Eq,
 {
 }
 
-impl<'alloc, 'arena, T, A> core::fmt::Debug for Vec<'alloc, T, A>
+impl<'alloc, T, A> core::fmt::Debug for Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
     T: core::fmt::Debug,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -250,9 +270,9 @@ where
     }
 }
 
-impl<'t, 'alloc, 'arena, T, A> core::iter::IntoIterator for &'t Vec<'alloc, T, A>
+impl<'t, 'alloc, T, A> core::iter::IntoIterator for &'t Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
 {
     type Item = &'t T;
     type IntoIter = core::slice::Iter<'t, T>;
@@ -263,9 +283,9 @@ where
     }
 }
 
-impl<'t, 'alloc, 'arena, T, A> core::iter::IntoIterator for &'t mut Vec<'alloc, T, A>
+impl<'t, 'alloc, T, A> core::iter::IntoIterator for &'t mut Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
 {
     type Item = &'t mut T;
     type IntoIter = core::slice::IterMut<'t, T>;
@@ -276,9 +296,9 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, A> core::iter::IntoIterator for Vec<'alloc, T, A>
+impl<'alloc, T, A> core::iter::IntoIterator for Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
 {
     type Item = T;
     type IntoIter = IntoIter<'alloc, T, A>;
@@ -290,9 +310,9 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, I, A> core::ops::Index<I> for Vec<'alloc, T, A>
+impl<'alloc, T, I, A> core::ops::Index<I> for Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
     I: core::slice::SliceIndex<[T]>,
 {
     type Output = <I as core::slice::SliceIndex<[T]>>::Output;
@@ -303,9 +323,9 @@ where
     }
 }
 
-impl<'alloc, 'arena, T, I, A> core::ops::IndexMut<I> for Vec<'alloc, T, A>
+impl<'alloc, T, I, A> core::ops::IndexMut<I> for Vec<'alloc, T, A>
 where
-    A: Bump<'alloc, 'arena>,
+    A: for<'arena> Bump<'alloc, 'arena>,
     I: core::slice::SliceIndex<[T]>,
 {
     #[inline]
