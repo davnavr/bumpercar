@@ -147,8 +147,30 @@ where
     }
 
     /// Reserves space for an exact number of additional elements, allocating new memory as needed.
+    ///
+    /// See [`Vec::reserve_exact`](alloc::vec::Vec::reserve_exact) for more information.
+    #[inline]
     pub fn reserve_exact(&mut self, additional: usize) {
         self.try_reserve_exact(additional).unwrap()
+    }
+
+    /// Reserves space for an additional number of elements.
+    ///
+    /// To avoid reserving excess space, especially when the additional number of items is an exact
+    /// amouint, use [`reserve_exact`](Self::reserve_exact).
+    ///
+    /// See [`Vec::reserve`](alloc::vec::Vec::reserve) for more information.
+    pub fn reserve(&mut self, additional: usize) {
+        let with_additional = self.capacity.checked_add(additional).unwrap_or(usize::MAX);
+        let new_capacity = match with_additional {
+            0..=4 => 4,
+            _ => with_additional
+                .checked_next_power_of_two()
+                .unwrap_or(additional),
+        };
+
+        // No overflow, new_capacity should be >= self.capacity
+        self.reserve_exact(new_capacity - self.capacity)
     }
 
     /// Appends an item to the end of the vector.
